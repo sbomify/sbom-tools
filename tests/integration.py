@@ -145,6 +145,33 @@ def components(path: Path, fmt: str) -> int | None:
     return len(document.get("components") or [])
 
 
+def identified(path: Path, fmt: str) -> float:
+    """Fraction of components carrying a package URL.
+
+    A count alone is a poor measure of an SBOM. Components without a purl
+    cannot be matched against an advisory database, so they are close to
+    inert for the thing most people want an SBOM for -- a document can look
+    full and still be useless.
+    """
+    if not path.exists():
+        return 0.0
+    try:
+        document = json.loads(path.read_text())
+    except json.JSONDecodeError:
+        return 0.0
+    if fmt == "spdx":
+        packages = document.get("packages") or []
+        if not packages:
+            return 0.0
+        with_purl = sum(
+            1 for p in packages
+            if any(r.get("referenceType") == "purl" for r in (p.get("externalRefs") or []))
+        )
+        return with_purl / len(packages)
+    parts = document.get("components") or []
+    return (sum(1 for c in parts if c.get("purl")) / len(parts)) if parts else 0.0
+
+
 def run(cmd: list[str], cwd: Path, env: dict[str, str], timeout: int = 3600) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True, timeout=timeout)  # noqa: S603
 
@@ -223,6 +250,16 @@ def generate_cdxgen(
     cmd = ["cdxgen", "-o", str(out), "--fail-on-error"]
     if not recurse:
         cmd.append("--no-recurse")
+    # Production dependencies only, matching how the action invokes cdxgen.
+    # Without it axios reports 1669 components against syft's 38, because the
+    # count is dominated by devDependencies -- a number that flatters the tool
+    # and describes nothing anyone ships.
+    #
+    # Not for Go: cdxgen marks every `// indirect` line in go.mod as optional,
+    # but under module-graph pruning that block is the build closure, so
+    # --required-only would strip the entire transitive set.
+    if ecosystem != "golang":
+        cmd.append("--required-only")
     if fmt == "spdx":
         cmd += ["--format", "spdx"]
     if ecosystem:
@@ -313,7 +350,7 @@ def generator_for(project: str, fmt: str):
     return generate_cdxgen, "cdxgen"
 
 
-def run_case(name: str, spec: dict, fmt: str, local: Path | None, arch: str) -> tuple[str, int | None, int, bool]:
+def run_case(name: str, spec: dict, fmt: str, local: Path | None, arch: str) -> tuple[str, int | None, int, bool, float]:
     bundle = fetch_bundle(spec["bundle"], arch, local)
     source = clone(spec["repo"], spec["ref"])
     if spec.get("subdir"):
@@ -336,7 +373,11 @@ def run_case(name: str, spec: dict, fmt: str, local: Path | None, arch: str) -> 
             log(f"    {name}/{fmt}: {type(exc).__name__}: {str(exc)[:80]}")
             count = None
         floor = int(spec.get(f"floor_{fmt}", 1))
-        return label, count, floor, count is not None and count >= floor
+        purls = identified(out, fmt)
+        # A document whose components mostly lack purls is not usable for
+        # matching, however many rows it has.
+        ok = count is not None and count >= floor and purls >= 0.5
+        return label, count, floor, ok, purls
     finally:
         shutil.rmtree(work.parent, ignore_errors=True)
 
@@ -360,18 +401,18 @@ def main() -> int:
         return 1
 
     CACHE.mkdir(parents=True, exist_ok=True)
-    log(f"{'project':<14}{'bundle':<9}{'format':<11}{'generator':<12}{'count':>7}{'floor':>7}  verdict")
-    log("-" * 76)
+    log(f"{'project':<14}{'bundle':<9}{'format':<11}{'generator':<12}{'count':>7}{'floor':>7}{'purl%':>7}  verdict")
+    log("-" * 83)
     failures = 0
     for name, spec in selected.items():
         for fmt in formats:
-            label, count, floor, ok = run_case(name, spec, fmt, args.dir, args.arch)
+            label, count, floor, ok, purls = run_case(name, spec, fmt, args.dir, args.arch)
             if not ok:
                 failures += 1
             log(f"{name:<14}{spec['bundle']:<9}{fmt:<11}{label:<12}"
-                f"{'-' if count is None else count:>7}{floor:>7}  {'ok' if ok else 'FAIL'}")
+                f"{'-' if count is None else count:>7}{floor:>7}{round(purls * 100):>7}  {'ok' if ok else 'FAIL'}")
     total = len(selected) * len(formats)
-    log("-" * 76)
+    log("-" * 83)
     log(f"{total - failures}/{total} ok")
     return 1 if failures else 0
 

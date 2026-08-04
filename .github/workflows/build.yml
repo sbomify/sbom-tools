@@ -240,12 +240,29 @@ jobs:
           key: cargo-${{ matrix.slug }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: cargo-${{ matrix.slug }}-
 
+      - name: Resolve the pinned version
+        id: pin
+        run: |
+          # `cargo install <crate>` resolves from crates.io and ignores the
+          # manifest in the working directory, so without an explicit
+          # --version this would build whatever is newest and quietly defeat
+          # the pin. Cargo.lock is the pin; read it.
+          VERSION=$(python3 - <<'PY'
+          import tomllib, pathlib
+          lock = tomllib.loads(pathlib.Path("Cargo.lock").read_text())
+          print(next(p["version"] for p in lock["package"] if p["name"] == "cargo-cyclonedx"))
+          PY
+          )
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "cargo-cyclonedx pinned at $VERSION" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Build
         run: |
           mkdir -p dist
-          # --locked: build exactly what Cargo.lock pins, and fail rather
-          # than silently resolving something newer.
-          cargo install cargo-cyclonedx --locked --root ./out
+          # --locked additionally builds the crate's own recorded dependency
+          # versions rather than re-resolving them.
+          cargo install cargo-cyclonedx \
+            --version "${{ steps.pin.outputs.version }}" --locked --root ./out
           cp out/bin/cargo-cyclonedx "dist/cargo-cyclonedx-${{ matrix.slug }}"
 
       - name: Smoke test

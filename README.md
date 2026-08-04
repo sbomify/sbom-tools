@@ -26,6 +26,29 @@ tool binaries in the release list of a repository that is not about tools.
 Splitting them apart gives the tools their own cadence, and makes the
 attestation signer a genuinely separate identity from the thing it vouches for.
 
+## Bundles
+
+Consumers fetch one archive per ecosystem. Each holds the tools built here
+plus the toolchain they shell out to, unpacks anywhere writable, and runs
+without root.
+
+| bundle | contents | measured |
+| --- | --- | ---: |
+| `go` | cyclonedx-gomod + Go toolchain | 72.7 MB |
+| `rust` | cargo-cyclonedx + cargo, rustc | |
+| `jvm` | cdxgen + JDK, Maven, Gradle, sbt | 430.4 MB |
+| `dotnet` | cdxgen + .NET SDK | |
+| `cdxgen` | cdxgen alone | 33.9 MB |
+| `syft` | syft | 27.1 MB |
+| `sigstore` | cosign, crane | |
+
+The JVM is one bundle rather than three because all of Maven, Gradle and sbt
+need the same 190MB JDK.
+
+Every archive carries a `bundle.toml` describing what it provides, which
+directories hold executables, and what environment to set, so a consumer
+unpacks it and reads what to do rather than being taught each layout.
+
 ## Releases
 
 | trigger | published to |

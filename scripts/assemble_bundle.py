@@ -29,6 +29,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import zipfile
 import tomllib
 import urllib.request
 from pathlib import Path
@@ -57,8 +58,22 @@ def download_verified(url: str, algorithm: str, digest: str, dest: Path) -> None
 
 
 def safe_extract(archive: Path, into: Path) -> None:
-    """Unpack a tarball, refusing any member that escapes the destination."""
+    """Unpack an archive, refusing any member that escapes the destination."""
     into.mkdir(parents=True, exist_ok=True)
+    if archive.suffix == ".zip":
+        # Gradle ships a zip. zipfile drops the executable bit, so bin/gradle
+        # comes out unrunnable unless the mode is restored from the entry.
+        with zipfile.ZipFile(archive) as zf:
+            for info in zf.infolist():
+                target = (into / info.filename).resolve()
+                if not str(target).startswith(str(into.resolve())):
+                    die(f"{archive.name}: unsafe entry {info.filename!r}")
+            zf.extractall(into)  # noqa: S202 - every member checked above
+            for info in zf.infolist():
+                mode = info.external_attr >> 16
+                if mode:
+                    (into / info.filename).chmod(mode & 0o777)
+        return
     with tarfile.open(archive) as tar:
         for member in tar.getmembers():
             target = (into / member.name).resolve()

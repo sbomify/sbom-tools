@@ -201,7 +201,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        bundle: [go, rust, java, cdxgen, syft, sigstore]
+        bundle: [go, rust, jvm, dotnet, cdxgen, syft, sigstore]
         arch: [amd64, arm64]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2

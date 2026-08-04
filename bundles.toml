@@ -86,44 +86,98 @@ built = []
   url = "https://github.com/CycloneDX/cdxgen/releases/download/v12.8.2/cdxgen-linux-arm64-slim"
   sha256 = "d9bac95eaceef2a0eddf16b6a22e0ef1549ad827d488f44cb65be759f42aecd2"
 
-[bundle.java]
-description = "cdxgen with the JDK and Maven it needs to resolve a pom"
+[bundle.jvm]
+description = "cdxgen with the JDK, Maven, Gradle and sbt it shells out to"
 built = []
-env = { JAVA_HOME = "{prefix}/jdk", MAVEN_ARGS = "-Dmaven.repo.local={prefix}/repository" }
-# Self-contained on purpose: cdxgen shells out to `mvn dependency:tree`, and
-# Maven will not start without a JVM. Fetching three things to resolve one
-# pom.xml is what a bundle exists to avoid, so cdxgen is duplicated here
-# rather than made a second download.
+env = { JAVA_HOME = "{prefix}/jdk", MAVEN_ARGS = "-Dmaven.repo.local={prefix}/repository", GRADLE_USER_HOME = "{prefix}/.gradle", SBT_OPTS = "-Dsbt.global.base={prefix}/.sbt -Dsbt.ivy.home={prefix}/.ivy2 -Dsbt.coursier.home={prefix}/.coursier" }
+# Self-contained on purpose: cdxgen shells out to the build tool, and none of
+# them start without a JVM. Measured with cdxgen alone and no toolchain, a
+# Gradle project yields 0 components and an sbt project crashes outright --
+# and a 0-component SBOM still looks like success, which is exactly the silent
+# failure this is meant to stop. All three build tools share one JDK here;
+# separate bundles would ship 190MB of JDK three times.
 
-  [bundle.java.upstream.cdxgen]
+  [bundle.jvm.upstream.cdxgen]
   version = "12.8.2"
   kind = "raw"
   bin_name = "cdxgen"
-  [bundle.java.upstream.cdxgen.amd64]
+  [bundle.jvm.upstream.cdxgen.amd64]
   url = "https://github.com/CycloneDX/cdxgen/releases/download/v12.8.2/cdxgen-linux-amd64-slim"
   sha256 = "4b49a3cc09e4f5f8815058edf0a6d2feecc843f3eecf7649b75c86e21383b381"
-  [bundle.java.upstream.cdxgen.arm64]
+  [bundle.jvm.upstream.cdxgen.arm64]
   url = "https://github.com/CycloneDX/cdxgen/releases/download/v12.8.2/cdxgen-linux-arm64-slim"
   sha256 = "d9bac95eaceef2a0eddf16b6a22e0ef1549ad827d488f44cb65be759f42aecd2"
 
-  [bundle.java.upstream.jdk]
+  [bundle.jvm.upstream.jdk]
   version = "21.0.12+8"
   strip_container = true
   into = "jdk"
-  [bundle.java.upstream.jdk.amd64]
+  [bundle.jvm.upstream.jdk.amd64]
   url = "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12%2B8/OpenJDK21U-jdk_x64_linux_hotspot_21.0.12_8.tar.gz"
   sha256 = "e4446ff06a276155697597cc0f1b15da004ff083f4964a35271ecee567177370"
-  [bundle.java.upstream.jdk.arm64]
+  [bundle.jvm.upstream.jdk.arm64]
   url = "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12%2B8/OpenJDK21U-jdk_aarch64_linux_hotspot_21.0.12_8.tar.gz"
   sha256 = "eba38e871b02d407897bfe017ea35352dfc1420ef6d2112425b0c67325ca509d"
 
-  [bundle.java.upstream.maven]
+  [bundle.jvm.upstream.maven]
   version = "3.9.16"
   strip_container = true
   into = "maven"
-  [bundle.java.upstream.maven.amd64]
+  [bundle.jvm.upstream.maven.amd64]
   url = "https://archive.apache.org/dist/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.tar.gz"
   sha512 = "831a8591fe20c8243b1dbe7d71e3244f31d1665b0804b2e825e38cbbe5ce0cafb8338851f90780735568773e0a6cd07bbec107cda0b896b008b861075358b6f6"
-  [bundle.java.upstream.maven.arm64]
+  [bundle.jvm.upstream.maven.arm64]
   url = "https://archive.apache.org/dist/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.tar.gz"
   sha512 = "831a8591fe20c8243b1dbe7d71e3244f31d1665b0804b2e825e38cbbe5ce0cafb8338851f90780735568773e0a6cd07bbec107cda0b896b008b861075358b6f6"
+
+  [bundle.jvm.upstream.gradle]
+  version = "9.6.1"
+  strip_container = true
+  into = "gradle"
+  [bundle.jvm.upstream.gradle.amd64]
+  url = "https://services.gradle.org/distributions/gradle-9.6.1-bin.zip"
+  sha256 = "9c0f7faeeb306cb14e4279a3e084ca6b596894089a0638e68a07c945a32c9e14"
+  [bundle.jvm.upstream.gradle.arm64]
+  url = "https://services.gradle.org/distributions/gradle-9.6.1-bin.zip"
+  sha256 = "9c0f7faeeb306cb14e4279a3e084ca6b596894089a0638e68a07c945a32c9e14"
+
+  # Gradle and sbt are JVM applications, so one architecture-independent
+  # archive serves both. Only the JDK below differs per architecture.
+  [bundle.jvm.upstream.sbt]
+  version = "2.0.5"
+  strip_container = true
+  into = "sbt"
+  [bundle.jvm.upstream.sbt.amd64]
+  url = "https://github.com/sbt/sbt/releases/download/v2.0.5/sbt-2.0.5.tgz"
+  sha256 = "2a53c95403cb7fccd5da05d48cfe03ff4be573a3f3d0295a41963b109e756a18"
+  [bundle.jvm.upstream.sbt.arm64]
+  url = "https://github.com/sbt/sbt/releases/download/v2.0.5/sbt-2.0.5.tgz"
+  sha256 = "2a53c95403cb7fccd5da05d48cfe03ff4be573a3f3d0295a41963b109e756a18"
+
+[bundle.dotnet]
+description = "cdxgen with the .NET SDK it needs to restore packages.lock.json"
+built = []
+env = { DOTNET_CLI_HOME = "{prefix}/.dotnet", NUGET_PACKAGES = "{prefix}/.nuget", DOTNET_CLI_TELEMETRY_OPTOUT = "1" }
+# Without the SDK, cdxgen produces no SBOM at all for packages.lock.json --
+# measured, not assumed.
+
+  [bundle.dotnet.upstream.cdxgen]
+  version = "12.8.2"
+  kind = "raw"
+  bin_name = "cdxgen"
+  [bundle.dotnet.upstream.cdxgen.amd64]
+  url = "https://github.com/CycloneDX/cdxgen/releases/download/v12.8.2/cdxgen-linux-amd64-slim"
+  sha256 = "4b49a3cc09e4f5f8815058edf0a6d2feecc843f3eecf7649b75c86e21383b381"
+  [bundle.dotnet.upstream.cdxgen.arm64]
+  url = "https://github.com/CycloneDX/cdxgen/releases/download/v12.8.2/cdxgen-linux-arm64-slim"
+  sha256 = "d9bac95eaceef2a0eddf16b6a22e0ef1549ad827d488f44cb65be759f42aecd2"
+
+  [bundle.dotnet.upstream.dotnet]
+  version = "10.0.302"
+  into = "dotnet"
+  [bundle.dotnet.upstream.dotnet.amd64]
+  url = "https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.302/dotnet-sdk-10.0.302-linux-x64.tar.gz"
+  sha512 = "10069bec8783596484a610332f090d562802a41b9b40e3327a5a5688b572e10c296ae300f940d40461f23c157ed1b0843c2f8e6b3f20d8d8d9d83432d8143bac"
+  [bundle.dotnet.upstream.dotnet.arm64]
+  url = "https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.302/dotnet-sdk-10.0.302-linux-arm64.tar.gz"
+  sha512 = "9e409c14e00686d661c78fa4dd9ad0e4dcf695c328bd5ff777d05b4a9c34b42cf89b12573b92e9fb2f565dbe12016b4835f77c7d9a42b55a7494df21634cd5d6"

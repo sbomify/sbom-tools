@@ -1,31 +1,26 @@
 ---
-# Compile the external tools we ship, from the lockfiles that pin them, and
-# publish them as our own attested artifacts.
+# Compile the SBOM tools from the lockfiles that pin them, assemble them into
+# relocatable per-ecosystem bundles, and publish those with build provenance.
 #
-# Previously we declared these tools in go.mod and Cargo.toml and
-# then downloaded somebody else's prebuilt binary anyway -- the lockfiles only
-# tracked versions. Building them here closes that gap: the binary the action
-# fetches is the one produced from the dependency graph we publish an SBOM
-# for, with build provenance attached.
+# A bundle is what consumers actually fetch: one archive holding the tools we
+# compile plus the toolchain they shell out to, unpacking into any writable
+# directory. That is what lets the consumer run without root -- the historical
+# alternative was `apt-get install` at run time, which needs root and pins
+# nothing.
 #
-# Where the artifacts land follows the release model:
+# Where things land follows the release model:
 #
 #   push to master   the "tools-rolling" pre-release, replaced in place
 #   published tag    release assets, immutable for the life of the release
 #
-# Both are needed, and a workflow artifact cannot stand in for the rolling
-# half. Workflow artifacts require authentication even on a public repository
-# (the download 401s) and expire after 90 days, so nothing outside the run
-# that produced them can fetch one -- least of all a user running :latest.
-# A pre-release gives master a stable, public, unauthenticated URL, which is
-# what lets master exercise a bumped tool version before a release is cut.
-# Cutting a release to find out whether a bump works is exactly backwards:
-# the release is the thing the bump might break.
-#
-# Only tools that can be built from a lockfile are here. The JDK, Maven, the
-# Go and Rust toolchains and cdxgen are upstream distributions, not things we
-# compile, and stay pinned by digest in the consumer's manifest.
-name: Build Tools
+# Both are needed. A workflow artifact cannot serve as the rolling half: it
+# requires authentication even on a public repository and expires after 90
+# days, so nothing outside the run that produced it can fetch one. The
+# pre-release gives a stable, public, unauthenticated URL, which is what lets
+# a consumer's master exercise a bumped tool before a release is cut. Cutting
+# a release to find out whether a bump works is backwards -- the release is
+# the thing the bump might break.
+name: Build
 
 on:
   push:
@@ -38,10 +33,9 @@ permissions:
   contents: read
 
 jobs:
-  # The rolling pre-release is created once, here, rather than by whichever
-  # matrix job gets there first: eight jobs racing to create the same tag
-  # means seven failures to swallow, and swallowing them would also hide a
-  # real one.
+  # Created once here rather than by whichever job gets there first: several
+  # jobs racing to create one tag means several failures to swallow, and
+  # swallowing them would hide a real one too.
   prepare-rolling:
     name: Ensure the rolling pre-release exists
     if: github.event_name != 'release'
@@ -55,45 +49,30 @@ jobs:
           TAG: tools-rolling
         run: |
           if gh release view "$TAG" >/dev/null 2>&1; then
-            # Repoint the tag at the commit these binaries come from.
             gh release edit "$TAG" --target "$GITHUB_SHA" --prerelease --latest=false
           else
             gh release create "$TAG" \
-              --title "Rolling tool builds (master)" \
-              --notes "Tool binaries built from the lockfiles on master. Replaced on every push; not a supported download. Cut releases carry their own immutable copies." \
+              --title "Rolling bundles (master)" \
+              --notes "Ecosystem bundles built from the lockfiles on master. Replaced on every push; not a supported download. Cut releases carry their own immutable copies." \
               --prerelease --latest=false --target "$GITHUB_SHA"
           fi
 
-  build:
+  build-go:
     name: ${{ matrix.tool }} (${{ matrix.slug }})
-    needs: [prepare-rolling]
-    # needs is skipped entirely on a release, so this must not gate on it.
-    if: always() && (github.event_name == 'release' || needs.prepare-rolling.result == 'success')
     runs-on: ${{ matrix.runner }}
-    permissions:
-      # write, not read: the release path uploads the built binary as a
-      # release asset, which read cannot do.
-      contents: write
-      id-token: write # OIDC identity for keyless attestation
-      attestations: write
     strategy:
       fail-fast: false
       matrix:
         include:
           - { slug: linux-amd64, runner: ubuntu-latest, goarch: amd64 }
           - { slug: linux-arm64, runner: ubuntu-24.04-arm, goarch: arm64 }
-        tool:
-          - syft
-          - cosign
-          - crane
-          - cyclonedx-gomod
+        tool: [syft, cosign, crane, cyclonedx-gomod]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      # setup-go caches both the module cache and the build cache, keyed on
-      # the lockfile. Every tool in the matrix shares one go.sum, so a warm
-      # cache from any of them speeds up the rest: unless a dependency is
-      # bumped this is a cache hit and the compile is close to free. The
+      # setup-go caches the module and build caches keyed on the lockfile.
+      # Every tool shares one go.sum, so a warm cache from any of them speeds
+      # up the rest: an unchanged dependency graph is a cache hit.
       - name: Set up Go
         uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed # v5.1.0
         with:
@@ -105,18 +84,14 @@ jobs:
         id: pin
         run: |
           case "${{ matrix.tool }}" in
-            syft)            MOD=github.com/anchore/syft;                     PKG=$MOD/cmd/syft ;;
-            cosign)          MOD=github.com/sigstore/cosign/v3;               PKG=$MOD/cmd/cosign ;;
-            crane)           MOD=github.com/google/go-containerregistry;      PKG=$MOD/cmd/crane ;;
-            cyclonedx-gomod) MOD=github.com/CycloneDX/cyclonedx-gomod;        PKG=$MOD/cmd/cyclonedx-gomod ;;
+            syft)            MOD=github.com/anchore/syft;                PKG=$MOD/cmd/syft ;;
+            cosign)          MOD=github.com/sigstore/cosign/v3;          PKG=$MOD/cmd/cosign ;;
+            crane)           MOD=github.com/google/go-containerregistry; PKG=$MOD/cmd/crane ;;
+            cyclonedx-gomod) MOD=github.com/CycloneDX/cyclonedx-gomod;   PKG=$MOD/cmd/cyclonedx-gomod ;;
             *) echo "unknown tool ${{ matrix.tool }}" >&2; exit 1 ;;
           esac
           VERSION=$(go list -m -f '{{ .Version }}' "$MOD")
-          {
-            echo "pkg=$PKG"
-            echo "version=${VERSION#v}"
-            echo "tag=$VERSION"
-          } >> "$GITHUB_OUTPUT"
+          { echo "pkg=$PKG"; echo "version=${VERSION#v}"; echo "tag=$VERSION"; } >> "$GITHUB_OUTPUT"
 
       - name: Build
         env:
@@ -125,8 +100,8 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
         run: |
           mkdir -p dist
-          # syft leaves its version as "[not provided]" unless stamped, and the
-          # SBOMs it produces record the generating tool's version -- an
+          # syft reports its version as "[not provided]" unless stamped, and
+          # the SBOMs it produces record the generating tool's version -- an
           # unstamped build understates its own provenance. The others read it
           # from the module build info.
           LDFLAGS="-s -w"
@@ -137,99 +112,34 @@ jobs:
           # -trimpath keeps runner paths out of the binary, so the build does
           # not depend on where it happened.
           go build -trimpath -ldflags="$LDFLAGS" \
-            -o "dist/${{ matrix.tool }}-${{ matrix.slug }}" "${{ steps.pin.outputs.pkg }}"
+            -o "dist/${{ matrix.tool }}-linux-${{ matrix.goarch }}" "${{ steps.pin.outputs.pkg }}"
 
       - name: Smoke test
         run: |
-          BIN="dist/${{ matrix.tool }}-${{ matrix.slug }}"
+          BIN="dist/${{ matrix.tool }}-linux-${{ matrix.goarch }}"
           test -x "$BIN"
-          # Native arch only: an arm64 binary will not run on an amd64 runner.
-          if [ "${{ matrix.goarch }}" = "$(dpkg --print-architecture)" ]; then
-            "$BIN" version || "$BIN" --version
-          fi
+          "$BIN" version || "$BIN" --version
           sha256sum "$BIN" | tee -a "$GITHUB_STEP_SUMMARY"
 
-      - name: Attest build provenance
-        id: attest
-        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v2.2.3
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          subject-path: dist/${{ matrix.tool }}-${{ matrix.slug }}
-
-      # Publish the Sigstore bundle next to the binary it describes.
-      #
-      # GitHub keeps a copy behind its attestations API, but that is not a
-      # usable fetch path here: the bundle now comes back through a redirect
-      # to blob storage wrapped in an undocumented binary framing, and
-      # depending on an unversioned internal format to verify a supply chain
-      # is not a trade worth making. A release asset is plain, stable and
-      # public, and cosign reads it directly.
-      - name: Stage the attestation bundle
-        run: cp "${{ steps.attest.outputs.bundle-path }}" "dist/${{ matrix.tool }}-${{ matrix.slug }}.sigstore.json"
-
-      # Kept for debugging a specific run. It is NOT the distribution channel:
-      # see the header for why an artifact cannot serve that purpose.
-      - name: Upload build artifact
-        if: github.event_name != 'release'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: tool-${{ matrix.tool }}-${{ matrix.slug }}
-          path: |
-            dist/${{ matrix.tool }}-${{ matrix.slug }}
-            dist/${{ matrix.tool }}-${{ matrix.slug }}.sigstore.json
-          retention-days: 90
+          name: tool-${{ matrix.tool }}-${{ matrix.goarch }}
+          path: dist/${{ matrix.tool }}-linux-${{ matrix.goarch }}
           if-no-files-found: error
 
-      # Rolling master: one long-lived pre-release whose assets are replaced
-      # on every push, so the download URL never changes and master can run
-      # against a freshly bumped tool without a release being cut.
-      #
-      # Marked --prerelease so it never displaces the real latest release, and
-      # --latest=false so tooling that asks for "the latest release" keeps
-      # getting the cut one.
-      - name: Publish to the rolling pre-release
-        if: github.event_name != 'release'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: tools-rolling
-        run: |
-          gh release upload "$TAG" \
-            "dist/${{ matrix.tool }}-${{ matrix.slug }}" \
-            "dist/${{ matrix.tool }}-${{ matrix.slug }}.sigstore.json" --clobber
-
-      # Cut release: immutable, publicly fetchable for as long as the release
-      # exists, which is what a released image needs.
-      - name: Attach to the release
-        if: github.event_name == 'release'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release upload "${{ github.event.release.tag_name }}" \
-            "dist/${{ matrix.tool }}-${{ matrix.slug }}" \
-            "dist/${{ matrix.tool }}-${{ matrix.slug }}.sigstore.json" --clobber
-
-  # cargo-cyclonedx is a crates.io crate pinned in Cargo.lock, so it is
-  # ours to build like the Go tools. It was only ever downloaded prebuilt
-  # because this workflow started out Go-only.
   build-rust:
-    name: cargo-cyclonedx (${{ matrix.slug }})
-    needs: [prepare-rolling]
-    if: always() && (github.event_name == 'release' || needs.prepare-rolling.result == 'success')
+    name: cargo-cyclonedx (${{ matrix.goarch }})
     runs-on: ${{ matrix.runner }}
-    permissions:
-      contents: write
-      id-token: write
-      attestations: write
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { slug: linux-amd64, runner: ubuntu-latest }
-          - { slug: linux-arm64, runner: ubuntu-24.04-arm }
+          - { goarch: amd64, runner: ubuntu-latest }
+          - { goarch: arm64, runner: ubuntu-24.04-arm }
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      # Both runners are native, so there is no cross-compilation to set up:
-      # each builds for the architecture it is already running.
+      # rust-toolchain.toml pins the compiler; rustup honours it on first use.
       - name: Cache the cargo registry and build
         uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
         with:
@@ -237,8 +147,8 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: cargo-${{ matrix.slug }}-${{ hashFiles('Cargo.lock') }}
-          restore-keys: cargo-${{ matrix.slug }}-
+          key: cargo-${{ matrix.goarch }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-${{ matrix.goarch }}-
 
       - name: Resolve the pinned version
         id: pin
@@ -247,14 +157,12 @@ jobs:
           # manifest in the working directory, so without an explicit
           # --version this would build whatever is newest and quietly defeat
           # the pin. Cargo.lock is the pin; read it.
-          VERSION=$(python3 - <<'PY'
+          VERSION=$(python3 -c "
           import tomllib, pathlib
-          lock = tomllib.loads(pathlib.Path("Cargo.lock").read_text())
-          print(next(p["version"] for p in lock["package"] if p["name"] == "cargo-cyclonedx"))
-          PY
-          )
+          lock = tomllib.loads(pathlib.Path('Cargo.lock').read_text())
+          print(next(p['version'] for p in lock['package'] if p['name'] == 'cargo-cyclonedx'))
+          ")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "cargo-cyclonedx pinned at $VERSION" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Build
         run: |
@@ -262,40 +170,92 @@ jobs:
           # --locked additionally builds the crate's own recorded dependency
           # versions rather than re-resolving them.
           cargo install cargo-cyclonedx \
-            --version "${{ steps.pin.outputs.version }}" --locked --root ./out
-          cp out/bin/cargo-cyclonedx "dist/cargo-cyclonedx-${{ matrix.slug }}"
+            --version "${{ steps.pin.outputs.version }}" --locked --root ./cargo-out
+          cp cargo-out/bin/cargo-cyclonedx "dist/cargo-cyclonedx-linux-${{ matrix.goarch }}"
 
       - name: Smoke test
         run: |
-          BIN="dist/cargo-cyclonedx-${{ matrix.slug }}"
+          BIN="dist/cargo-cyclonedx-linux-${{ matrix.goarch }}"
           test -x "$BIN"
           "$BIN" --version
           sha256sum "$BIN" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tool-cargo-cyclonedx-${{ matrix.goarch }}
+          path: dist/cargo-cyclonedx-linux-${{ matrix.goarch }}
+          if-no-files-found: error
+
+  # The bundles are the published artifact, so they are what gets attested:
+  # one signature over the thing a consumer actually downloads, rather than
+  # over a binary that is only an ingredient.
+  assemble:
+    name: bundle ${{ matrix.bundle }} (${{ matrix.arch }})
+    needs: [prepare-rolling, build-go, build-rust]
+    if: always() && needs.build-go.result == 'success' && needs.build-rust.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write # OIDC identity for keyless attestation
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        bundle: [go, rust, java, cdxgen, syft, sigstore]
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: tool-*-${{ matrix.arch }}
+          path: dist
+          merge-multiple: true
+
+      - name: Assemble
+        run: python3 scripts/assemble_bundle.py --bundle ${{ matrix.bundle }} --arch ${{ matrix.arch }}
+
+      - name: Verify it runs unpacked, as a plain user
+        run: |
+          PREFIX=$(mktemp -d)
+          tar xzf "out/${{ matrix.bundle }}-linux-${{ matrix.arch }}.tar.gz" -C "$PREFIX"
+          test -f "$PREFIX/bundle.toml"
+          # arm64 binaries cannot run on an amd64 runner; the layout check
+          # above still applies to both.
+          if [ "${{ matrix.arch }}" = "amd64" ]; then
+            # HOME=/ is unwritable, which is the case that broke the old
+            # design: every tool must keep its caches inside the prefix.
+            for bin in "$PREFIX"/bin/*; do
+              env -i HOME=/ PATH="$PREFIX/bin:/usr/bin:/bin" "$bin" --version >/dev/null 2>&1 \
+                || env -i HOME=/ PATH="$PREFIX/bin:/usr/bin:/bin" "$bin" version >/dev/null 2>&1 \
+                || echo "note: $(basename "$bin") has no version flag"
+            done
+          fi
+          sha256sum "out/${{ matrix.bundle }}-linux-${{ matrix.arch }}.tar.gz" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Attest build provenance
         id: attest
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v2.2.3
         with:
-          subject-path: dist/cargo-cyclonedx-${{ matrix.slug }}
+          subject-path: out/${{ matrix.bundle }}-linux-${{ matrix.arch }}.tar.gz
 
+      # Published next to the bundle it describes. GitHub keeps a copy behind
+      # its attestations API, but that is not a usable fetch path: the bundle
+      # comes back through a redirect to blob storage under an undocumented
+      # binary framing, and depending on an unversioned internal format to
+      # verify a supply chain is not a trade worth making.
       - name: Stage the attestation bundle
-        run: cp "${{ steps.attest.outputs.bundle-path }}" "dist/cargo-cyclonedx-${{ matrix.slug }}.sigstore.json"
+        run: cp "${{ steps.attest.outputs.bundle-path }}" "out/${{ matrix.bundle }}-linux-${{ matrix.arch }}.tar.gz.sigstore.json"
 
-      - name: Publish to the rolling pre-release
-        if: github.event_name != 'release'
+      - name: Publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: tools-rolling
         run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            TAG="${{ github.event.release.tag_name }}"
+          else
+            TAG="tools-rolling"
+          fi
           gh release upload "$TAG" \
-            "dist/cargo-cyclonedx-${{ matrix.slug }}" \
-            "dist/cargo-cyclonedx-${{ matrix.slug }}.sigstore.json" --clobber
-
-      - name: Attach to the release
-        if: github.event_name == 'release'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release upload "${{ github.event.release.tag_name }}" \
-            "dist/cargo-cyclonedx-${{ matrix.slug }}" \
-            "dist/cargo-cyclonedx-${{ matrix.slug }}.sigstore.json" --clobber
+            "out/${{ matrix.bundle }}-linux-${{ matrix.arch }}.tar.gz" \
+            "out/${{ matrix.bundle }}-linux-${{ matrix.arch }}.tar.gz.sigstore.json" --clobber

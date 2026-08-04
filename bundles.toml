@@ -1,0 +1,129 @@
+# What each ecosystem bundle contains.
+#
+# A bundle is one relocatable archive holding everything an ecosystem needs:
+# the tool we compile, plus the runtime it shells out to. It unpacks into any
+# writable directory and runs from there -- no system install, no root, and
+# nothing to resolve at run time beyond this one download.
+#
+# "built" entries come from the lockfiles in this repository and are compiled
+# by .github/workflows/build.yml. "upstream" entries are self-hosting
+# toolchains: building rustc needs a rustc (src/stage0 downloads one from the
+# very URL below), building Go needs Go >= 1.24.6, building a JDK needs a boot
+# JDK, and Maven builds with Maven. Compiling them from source would start by
+# trusting the binary it is meant to replace, so they are pinned by the
+# vendor's published digest instead -- which is the same bootstrap reasoning
+# that keeps cosign vendor-pinned.
+
+[bundle.go]
+description = "cyclonedx-gomod and the Go toolchain it invokes"
+built = ["cyclonedx-gomod"]
+env = { GOMODCACHE = "{prefix}/.gomodcache", GOCACHE = "{prefix}/.gocache", GOPATH = "{prefix}/.gopath" }
+
+  [bundle.go.upstream.go]
+  version = "1.26.5"
+  strip_container = true
+  [bundle.go.upstream.go.amd64]
+  url = "https://go.dev/dl/go1.26.5.linux-amd64.tar.gz"
+  sha256 = "5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053"
+  [bundle.go.upstream.go.arm64]
+  url = "https://go.dev/dl/go1.26.5.linux-arm64.tar.gz"
+  sha256 = "fe4789e92b1f33358680864bbe8704289e7bb5fc207d80623c308935bd696d49"
+
+[bundle.rust]
+description = "cargo-cyclonedx with the cargo and rustc it shells out to"
+built = ["cargo-cyclonedx"]
+env = { CARGO_HOME = "{prefix}/.cargo" }
+# rust-std is deliberately absent: cargo-cyclonedx compiles nothing. Verified
+# by deleting lib/rustlib from a full toolchain, which changes nothing, while
+# deleting the rest of lib/ breaks it. Saves 181MB.
+
+  [bundle.rust.upstream.cargo]
+  version = "1.97.1"
+  strip_container = true
+  [bundle.rust.upstream.cargo.amd64]
+  url = "https://static.rust-lang.org/dist/cargo-1.97.1-x86_64-unknown-linux-gnu.tar.xz"
+  sha256 = "e1be5f5ff7f7f80ca506fb65770b759edbdc6d303781ed71c5de8ec8a8394779"
+  [bundle.rust.upstream.cargo.arm64]
+  url = "https://static.rust-lang.org/dist/cargo-1.97.1-aarch64-unknown-linux-gnu.tar.xz"
+  sha256 = "8f70bcaccea5ba4db187c3fd4d64e24592b4e16af513497201f5909d61691dbe"
+
+  [bundle.rust.upstream.rustc]
+  version = "1.97.1"
+  strip_container = true
+  [bundle.rust.upstream.rustc.amd64]
+  url = "https://static.rust-lang.org/dist/rustc-1.97.1-x86_64-unknown-linux-gnu.tar.xz"
+  sha256 = "9819d0a32d56bd339585319c80260e332779f5541fd66838ab7e016d6c814819"
+  [bundle.rust.upstream.rustc.arm64]
+  url = "https://static.rust-lang.org/dist/rustc-1.97.1-aarch64-unknown-linux-gnu.tar.xz"
+  sha256 = "b344b81f0cd4c2246c7da8b197fe7a339d7dd02bb15cb69b2524115d9c75224c"
+
+[bundle.syft]
+description = "syft, for container images and as the filesystem fallback"
+built = ["syft"]
+
+[bundle.sigstore]
+description = "cosign and crane, for registry attestations"
+built = ["cosign", "crane"]
+
+[bundle.cdxgen]
+description = "cdxgen alone, for the ecosystems it resolves without a toolchain"
+built = []
+# The one thing here we do not compile, and not for want of trying. cdxgen's
+# published binary is a bundled Node application that resolves its data files
+# against __dirname, so `bun build --compile` of the package in its own
+# lockfile yields a binary that dies with "ENOENT: /data/lic-mapping.json".
+# Upstream needs a 599-line build script in a distro container to produce
+# theirs; a worse copy of an artifact they already test helps nobody.
+
+  [bundle.cdxgen.upstream.cdxgen]
+  version = "12.8.2"
+  kind = "raw"
+  bin_name = "cdxgen"
+  [bundle.cdxgen.upstream.cdxgen.amd64]
+  url = "https://github.com/CycloneDX/cdxgen/releases/download/v12.8.2/cdxgen-linux-amd64-slim"
+  sha256 = "4b49a3cc09e4f5f8815058edf0a6d2feecc843f3eecf7649b75c86e21383b381"
+  [bundle.cdxgen.upstream.cdxgen.arm64]
+  url = "https://github.com/CycloneDX/cdxgen/releases/download/v12.8.2/cdxgen-linux-arm64-slim"
+  sha256 = "d9bac95eaceef2a0eddf16b6a22e0ef1549ad827d488f44cb65be759f42aecd2"
+
+[bundle.java]
+description = "cdxgen with the JDK and Maven it needs to resolve a pom"
+built = []
+env = { JAVA_HOME = "{prefix}/jdk", MAVEN_ARGS = "-Dmaven.repo.local={prefix}/repository" }
+# Self-contained on purpose: cdxgen shells out to `mvn dependency:tree`, and
+# Maven will not start without a JVM. Fetching three things to resolve one
+# pom.xml is what a bundle exists to avoid, so cdxgen is duplicated here
+# rather than made a second download.
+
+  [bundle.java.upstream.cdxgen]
+  version = "12.8.2"
+  kind = "raw"
+  bin_name = "cdxgen"
+  [bundle.java.upstream.cdxgen.amd64]
+  url = "https://github.com/CycloneDX/cdxgen/releases/download/v12.8.2/cdxgen-linux-amd64-slim"
+  sha256 = "4b49a3cc09e4f5f8815058edf0a6d2feecc843f3eecf7649b75c86e21383b381"
+  [bundle.java.upstream.cdxgen.arm64]
+  url = "https://github.com/CycloneDX/cdxgen/releases/download/v12.8.2/cdxgen-linux-arm64-slim"
+  sha256 = "d9bac95eaceef2a0eddf16b6a22e0ef1549ad827d488f44cb65be759f42aecd2"
+
+  [bundle.java.upstream.jdk]
+  version = "21.0.12+8"
+  strip_container = true
+  into = "jdk"
+  [bundle.java.upstream.jdk.amd64]
+  url = "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12%2B8/OpenJDK21U-jdk_x64_linux_hotspot_21.0.12_8.tar.gz"
+  sha256 = "e4446ff06a276155697597cc0f1b15da004ff083f4964a35271ecee567177370"
+  [bundle.java.upstream.jdk.arm64]
+  url = "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12%2B8/OpenJDK21U-jdk_aarch64_linux_hotspot_21.0.12_8.tar.gz"
+  sha256 = "eba38e871b02d407897bfe017ea35352dfc1420ef6d2112425b0c67325ca509d"
+
+  [bundle.java.upstream.maven]
+  version = "3.9.16"
+  strip_container = true
+  into = "maven"
+  [bundle.java.upstream.maven.amd64]
+  url = "https://archive.apache.org/dist/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.tar.gz"
+  sha512 = "831a8591fe20c8243b1dbe7d71e3244f31d1665b0804b2e825e38cbbe5ce0cafb8338851f90780735568773e0a6cd07bbec107cda0b896b008b861075358b6f6"
+  [bundle.java.upstream.maven.arm64]
+  url = "https://archive.apache.org/dist/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.tar.gz"
+  sha512 = "831a8591fe20c8243b1dbe7d71e3244f31d1665b0804b2e825e38cbbe5ce0cafb8338851f90780735568773e0a6cd07bbec107cda0b896b008b861075358b6f6"

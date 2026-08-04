@@ -1,0 +1,284 @@
+---
+# Compile the SBOM tools from the lockfiles that pin them, assemble them into
+# relocatable per-ecosystem bundles, and publish those with build provenance.
+#
+# A bundle is what consumers actually fetch: one archive holding the tools we
+# compile plus the toolchain they shell out to, unpacking into any writable
+# directory. That is what lets the consumer run without root -- the historical
+# alternative was `apt-get install` at run time, which needs root and pins
+# nothing.
+#
+# Where things land follows the release model:
+#
+#   push to master   the "tools-rolling" pre-release, replaced in place
+#   published tag    release assets, immutable for the life of the release
+#
+# Both are needed. A workflow artifact cannot serve as the rolling half: it
+# requires authentication even on a public repository and expires after 90
+# days, so nothing outside the run that produced it can fetch one. The
+# pre-release gives a stable, public, unauthenticated URL, which is what lets
+# a consumer's master exercise a bumped tool before a release is cut. Cutting
+# a release to find out whether a bump works is backwards -- the release is
+# the thing the bump might break.
+name: Build
+
+on:
+  push:
+    branches: [master]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # Created once here rather than by whichever job gets there first: several
+  # jobs racing to create one tag means several failures to swallow, and
+  # swallowing them would hide a real one too.
+  prepare-rolling:
+    name: Ensure the rolling pre-release exists
+    if: github.event_name != 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: tools-rolling
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --target "$GITHUB_SHA" --prerelease --latest=false
+          else
+            gh release create "$TAG" \
+              --title "Rolling bundles (master)" \
+              --notes "Ecosystem bundles built from the lockfiles on master. Replaced on every push; not a supported download. Cut releases carry their own immutable copies." \
+              --prerelease --latest=false --target "$GITHUB_SHA"
+          fi
+
+  build-go:
+    name: ${{ matrix.tool }} (${{ matrix.slug }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { slug: linux-amd64, runner: ubuntu-latest, goarch: amd64 }
+          - { slug: linux-arm64, runner: ubuntu-24.04-arm, goarch: arm64 }
+        tool: [syft, cosign, crane, cyclonedx-gomod]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      # setup-go caches the module and build caches keyed on the lockfile.
+      # Every tool shares one go.sum, so a warm cache from any of them speeds
+      # up the rest: an unchanged dependency graph is a cache hit.
+      - name: Set up Go
+        uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed # v5.1.0
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Resolve the pinned module path and version
+        id: pin
+        run: |
+          case "${{ matrix.tool }}" in
+            syft)            MOD=github.com/anchore/syft;                PKG=$MOD/cmd/syft ;;
+            cosign)          MOD=github.com/sigstore/cosign/v3;          PKG=$MOD/cmd/cosign ;;
+            crane)           MOD=github.com/google/go-containerregistry; PKG=$MOD/cmd/crane ;;
+            cyclonedx-gomod) MOD=github.com/CycloneDX/cyclonedx-gomod;   PKG=$MOD/cmd/cyclonedx-gomod ;;
+            *) echo "unknown tool ${{ matrix.tool }}" >&2; exit 1 ;;
+          esac
+          VERSION=$(go list -m -f '{{ .Version }}' "$MOD")
+          { echo "pkg=$PKG"; echo "version=${VERSION#v}"; echo "tag=$VERSION"; } >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        env:
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          mkdir -p dist
+          # syft reports its version as "[not provided]" unless stamped, and
+          # the SBOMs it produces record the generating tool's version -- an
+          # unstamped build understates its own provenance. The others read it
+          # from the module build info.
+          LDFLAGS="-s -w"
+          if [ "${{ matrix.tool }}" = "syft" ]; then
+            LDFLAGS="$LDFLAGS -X main.version=${{ steps.pin.outputs.version }}"
+            LDFLAGS="$LDFLAGS -X main.gitDescription=${{ steps.pin.outputs.tag }}"
+          fi
+          # -trimpath keeps runner paths out of the binary, so the build does
+          # not depend on where it happened.
+          go build -trimpath -ldflags="$LDFLAGS" \
+            -o "dist/${{ matrix.tool }}-linux-${{ matrix.goarch }}" "${{ steps.pin.outputs.pkg }}"
+
+      - name: Smoke test
+        run: |
+          BIN="dist/${{ matrix.tool }}-linux-${{ matrix.goarch }}"
+          test -x "$BIN"
+          # Assert it, do not assume it: a dynamically linked binary would
+          # work on the runner and fail in a distroless or musl container.
+          file "$BIN"
+          if ! file "$BIN" | grep -qE "statically linked|static-pie linked"; then
+            echo "::error::$BIN is not statically linked" >&2
+            exit 1
+          fi
+          "$BIN" version || "$BIN" --version
+          sha256sum "$BIN" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tool-${{ matrix.tool }}-${{ matrix.goarch }}
+          path: dist/${{ matrix.tool }}-linux-${{ matrix.goarch }}
+          if-no-files-found: error
+
+  build-rust:
+    name: cargo-cyclonedx (${{ matrix.goarch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goarch: amd64, runner: ubuntu-latest, target: x86_64-unknown-linux-musl }
+          - { goarch: arm64, runner: ubuntu-24.04-arm, target: aarch64-unknown-linux-musl }
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      # musl-tools supplies the linker; rust-toolchain.toml pins the compiler
+      # and both musl targets, which rustup installs on first use.
+      - name: Install the musl toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends musl-tools
+
+      - name: Cache the cargo registry and build
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ matrix.goarch }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-${{ matrix.goarch }}-
+
+      - name: Resolve the pinned version
+        id: pin
+        run: |
+          # `cargo install <crate>` resolves from crates.io and ignores the
+          # manifest in the working directory, so without an explicit
+          # --version this would build whatever is newest and quietly defeat
+          # the pin. Cargo.lock is the pin; read it.
+          VERSION=$(python3 -c "
+          import tomllib, pathlib
+          lock = tomllib.loads(pathlib.Path('Cargo.lock').read_text())
+          print(next(p['version'] for p in lock['package'] if p['name'] == 'cargo-cyclonedx'))
+          ")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        run: |
+          mkdir -p dist
+          # --locked additionally builds the crate's own recorded dependency
+          # versions rather than re-resolving them.
+          # --target musl: statically linked, so the binary does not depend on
+          # whatever libc happens to be in the container it is unpacked into.
+          cargo install cargo-cyclonedx \
+            --version "${{ steps.pin.outputs.version }}" --locked \
+            --target "${{ matrix.target }}" --root ./cargo-out
+          cp cargo-out/bin/cargo-cyclonedx "dist/cargo-cyclonedx-linux-${{ matrix.goarch }}"
+
+      - name: Smoke test
+        run: |
+          BIN="dist/cargo-cyclonedx-linux-${{ matrix.goarch }}"
+          test -x "$BIN"
+          # Assert it, do not assume it: a dynamically linked binary would
+          # work on the runner and fail in a distroless or musl container.
+          file "$BIN"
+          if ! file "$BIN" | grep -qE "statically linked|static-pie linked"; then
+            echo "::error::$BIN is not statically linked" >&2
+            exit 1
+          fi
+          "$BIN" --version
+          sha256sum "$BIN" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tool-cargo-cyclonedx-${{ matrix.goarch }}
+          path: dist/cargo-cyclonedx-linux-${{ matrix.goarch }}
+          if-no-files-found: error
+
+  # The bundles are the published artifact, so they are what gets attested:
+  # one signature over the thing a consumer actually downloads, rather than
+  # over a binary that is only an ingredient.
+  assemble:
+    name: bundle ${{ matrix.bundle }} (${{ matrix.arch }})
+    needs: [prepare-rolling, build-go, build-rust]
+    if: always() && needs.build-go.result == 'success' && needs.build-rust.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write # OIDC identity for keyless attestation
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        bundle: [go, rust, jvm, dotnet, cdxgen, syft, sigstore]
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: tool-*-${{ matrix.arch }}
+          path: dist
+          merge-multiple: true
+
+      - name: Assemble
+        run: python3 scripts/assemble_bundle.py --bundle ${{ matrix.bundle }} --arch ${{ matrix.arch }}
+
+      - name: Verify it runs unpacked, as a plain user
+        run: |
+          PREFIX=$(mktemp -d)
+          tar xzf "out/${{ matrix.bundle }}-linux-${{ matrix.arch }}.tar.gz" -C "$PREFIX"
+          test -f "$PREFIX/bundle.toml"
+          # arm64 binaries cannot run on an amd64 runner; the layout check
+          # above still applies to both.
+          if [ "${{ matrix.arch }}" = "amd64" ]; then
+            # HOME=/ is unwritable, which is the case that broke the old
+            # design: every tool must keep its caches inside the prefix.
+            for bin in "$PREFIX"/bin/*; do
+              env -i HOME=/ PATH="$PREFIX/bin:/usr/bin:/bin" "$bin" --version >/dev/null 2>&1 \
+                || env -i HOME=/ PATH="$PREFIX/bin:/usr/bin:/bin" "$bin" version >/dev/null 2>&1 \
+                || echo "note: $(basename "$bin") has no version flag"
+            done
+          fi
+          sha256sum "out/${{ matrix.bundle }}-linux-${{ matrix.arch }}.tar.gz" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Attest build provenance
+        id: attest
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v2.2.3
+        with:
+          subject-path: out/${{ matrix.bundle }}-linux-${{ matrix.arch }}.tar.gz
+
+      # Published next to the bundle it describes. GitHub keeps a copy behind
+      # its attestations API, but that is not a usable fetch path: the bundle
+      # comes back through a redirect to blob storage under an undocumented
+      # binary framing, and depending on an unversioned internal format to
+      # verify a supply chain is not a trade worth making.
+      - name: Stage the attestation bundle
+        run: cp "${{ steps.attest.outputs.bundle-path }}" "out/${{ matrix.bundle }}-linux-${{ matrix.arch }}.tar.gz.sigstore.json"
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            TAG="${{ github.event.release.tag_name }}"
+          else
+            TAG="tools-rolling"
+          fi
+          gh release upload "$TAG" \
+            "out/${{ matrix.bundle }}-linux-${{ matrix.arch }}.tar.gz" \
+            "out/${{ matrix.bundle }}-linux-${{ matrix.arch }}.tar.gz.sigstore.json" --clobber

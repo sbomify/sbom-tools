@@ -1,0 +1,183 @@
+# What each ecosystem bundle contains.
+#
+# A bundle is one relocatable archive holding everything an ecosystem needs:
+# the tool we compile, plus the runtime it shells out to. It unpacks into any
+# writable directory and runs from there -- no system install, no root, and
+# nothing to resolve at run time beyond this one download.
+#
+# "built" entries come from the lockfiles in this repository and are compiled
+# by .github/workflows/build.yml. "upstream" entries are self-hosting
+# toolchains: building rustc needs a rustc (src/stage0 downloads one from the
+# very URL below), building Go needs Go >= 1.24.6, building a JDK needs a boot
+# JDK, and Maven builds with Maven. Compiling them from source would start by
+# trusting the binary it is meant to replace, so they are pinned by the
+# vendor's published digest instead -- which is the same bootstrap reasoning
+# that keeps cosign vendor-pinned.
+
+[bundle.go]
+description = "cyclonedx-gomod and the Go toolchain it invokes"
+built = ["cyclonedx-gomod"]
+env = { GOMODCACHE = "{prefix}/.gomodcache", GOCACHE = "{prefix}/.gocache", GOPATH = "{prefix}/.gopath" }
+
+  [bundle.go.upstream.go]
+  version = "1.26.5"
+  strip_container = true
+  [bundle.go.upstream.go.amd64]
+  url = "https://go.dev/dl/go1.26.5.linux-amd64.tar.gz"
+  sha256 = "5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053"
+  [bundle.go.upstream.go.arm64]
+  url = "https://go.dev/dl/go1.26.5.linux-arm64.tar.gz"
+  sha256 = "fe4789e92b1f33358680864bbe8704289e7bb5fc207d80623c308935bd696d49"
+
+[bundle.rust]
+description = "cargo-cyclonedx with the cargo and rustc it shells out to"
+built = ["cargo-cyclonedx"]
+env = { CARGO_HOME = "{prefix}/.cargo" }
+# rust-std is deliberately absent: cargo-cyclonedx compiles nothing. Verified
+# by deleting lib/rustlib from a full toolchain, which changes nothing, while
+# deleting the rest of lib/ breaks it. Saves 181MB.
+
+  [bundle.rust.upstream.cargo]
+  version = "1.97.1"
+  strip_container = true
+  [bundle.rust.upstream.cargo.amd64]
+  url = "https://static.rust-lang.org/dist/cargo-1.97.1-x86_64-unknown-linux-gnu.tar.xz"
+  sha256 = "e1be5f5ff7f7f80ca506fb65770b759edbdc6d303781ed71c5de8ec8a8394779"
+  [bundle.rust.upstream.cargo.arm64]
+  url = "https://static.rust-lang.org/dist/cargo-1.97.1-aarch64-unknown-linux-gnu.tar.xz"
+  sha256 = "8f70bcaccea5ba4db187c3fd4d64e24592b4e16af513497201f5909d61691dbe"
+
+  [bundle.rust.upstream.rustc]
+  version = "1.97.1"
+  strip_container = true
+  [bundle.rust.upstream.rustc.amd64]
+  url = "https://static.rust-lang.org/dist/rustc-1.97.1-x86_64-unknown-linux-gnu.tar.xz"
+  sha256 = "9819d0a32d56bd339585319c80260e332779f5541fd66838ab7e016d6c814819"
+  [bundle.rust.upstream.rustc.arm64]
+  url = "https://static.rust-lang.org/dist/rustc-1.97.1-aarch64-unknown-linux-gnu.tar.xz"
+  sha256 = "b344b81f0cd4c2246c7da8b197fe7a339d7dd02bb15cb69b2524115d9c75224c"
+
+[bundle.syft]
+description = "syft, for container images and as the filesystem fallback"
+built = ["syft"]
+
+[bundle.sigstore]
+description = "cosign and crane, for registry attestations"
+built = ["cosign", "crane"]
+
+[bundle.cdxgen]
+description = "cdxgen alone, for the ecosystems it resolves without a toolchain"
+built = []
+# The one thing here we do not compile, and not for want of trying. cdxgen's
+# published binary is a bundled Node application that resolves its data files
+# against __dirname, so `bun build --compile` of the package in its own
+# lockfile yields a binary that dies with "ENOENT: /data/lic-mapping.json".
+# Upstream needs a 599-line build script in a distro container to produce
+# theirs; a worse copy of an artifact they already test helps nobody.
+
+  [bundle.cdxgen.upstream.cdxgen]
+  version = "12.8.2"
+  kind = "raw"
+  bin_name = "cdxgen"
+  [bundle.cdxgen.upstream.cdxgen.amd64]
+  url = "https://github.com/CycloneDX/cdxgen/releases/download/v12.8.2/cdxgen-linux-amd64-slim"
+  sha256 = "4b49a3cc09e4f5f8815058edf0a6d2feecc843f3eecf7649b75c86e21383b381"
+  [bundle.cdxgen.upstream.cdxgen.arm64]
+  url = "https://github.com/CycloneDX/cdxgen/releases/download/v12.8.2/cdxgen-linux-arm64-slim"
+  sha256 = "d9bac95eaceef2a0eddf16b6a22e0ef1549ad827d488f44cb65be759f42aecd2"
+
+[bundle.jvm]
+description = "cdxgen with the JDK, Maven, Gradle and sbt it shells out to"
+built = []
+env = { JAVA_HOME = "{prefix}/jdk", MAVEN_ARGS = "-Dmaven.repo.local={prefix}/repository", GRADLE_USER_HOME = "{prefix}/.gradle", SBT_OPTS = "-Dsbt.global.base={prefix}/.sbt -Dsbt.ivy.home={prefix}/.ivy2 -Dsbt.coursier.home={prefix}/.coursier" }
+# Self-contained on purpose: cdxgen shells out to the build tool, and none of
+# them start without a JVM. Measured with cdxgen alone and no toolchain, a
+# Gradle project yields 0 components and an sbt project crashes outright --
+# and a 0-component SBOM still looks like success, which is exactly the silent
+# failure this is meant to stop. All three build tools share one JDK here;
+# separate bundles would ship 190MB of JDK three times.
+
+  [bundle.jvm.upstream.cdxgen]
+  version = "12.8.2"
+  kind = "raw"
+  bin_name = "cdxgen"
+  [bundle.jvm.upstream.cdxgen.amd64]
+  url = "https://github.com/CycloneDX/cdxgen/releases/download/v12.8.2/cdxgen-linux-amd64-slim"
+  sha256 = "4b49a3cc09e4f5f8815058edf0a6d2feecc843f3eecf7649b75c86e21383b381"
+  [bundle.jvm.upstream.cdxgen.arm64]
+  url = "https://github.com/CycloneDX/cdxgen/releases/download/v12.8.2/cdxgen-linux-arm64-slim"
+  sha256 = "d9bac95eaceef2a0eddf16b6a22e0ef1549ad827d488f44cb65be759f42aecd2"
+
+  [bundle.jvm.upstream.jdk]
+  version = "21.0.12+8"
+  strip_container = true
+  into = "jdk"
+  [bundle.jvm.upstream.jdk.amd64]
+  url = "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12%2B8/OpenJDK21U-jdk_x64_linux_hotspot_21.0.12_8.tar.gz"
+  sha256 = "e4446ff06a276155697597cc0f1b15da004ff083f4964a35271ecee567177370"
+  [bundle.jvm.upstream.jdk.arm64]
+  url = "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12%2B8/OpenJDK21U-jdk_aarch64_linux_hotspot_21.0.12_8.tar.gz"
+  sha256 = "eba38e871b02d407897bfe017ea35352dfc1420ef6d2112425b0c67325ca509d"
+
+  [bundle.jvm.upstream.maven]
+  version = "3.9.16"
+  strip_container = true
+  into = "maven"
+  [bundle.jvm.upstream.maven.amd64]
+  url = "https://archive.apache.org/dist/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.tar.gz"
+  sha512 = "831a8591fe20c8243b1dbe7d71e3244f31d1665b0804b2e825e38cbbe5ce0cafb8338851f90780735568773e0a6cd07bbec107cda0b896b008b861075358b6f6"
+  [bundle.jvm.upstream.maven.arm64]
+  url = "https://archive.apache.org/dist/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.tar.gz"
+  sha512 = "831a8591fe20c8243b1dbe7d71e3244f31d1665b0804b2e825e38cbbe5ce0cafb8338851f90780735568773e0a6cd07bbec107cda0b896b008b861075358b6f6"
+
+  [bundle.jvm.upstream.gradle]
+  version = "9.6.1"
+  strip_container = true
+  into = "gradle"
+  [bundle.jvm.upstream.gradle.amd64]
+  url = "https://services.gradle.org/distributions/gradle-9.6.1-bin.zip"
+  sha256 = "9c0f7faeeb306cb14e4279a3e084ca6b596894089a0638e68a07c945a32c9e14"
+  [bundle.jvm.upstream.gradle.arm64]
+  url = "https://services.gradle.org/distributions/gradle-9.6.1-bin.zip"
+  sha256 = "9c0f7faeeb306cb14e4279a3e084ca6b596894089a0638e68a07c945a32c9e14"
+
+  # Gradle and sbt are JVM applications, so one architecture-independent
+  # archive serves both. Only the JDK below differs per architecture.
+  [bundle.jvm.upstream.sbt]
+  version = "2.0.5"
+  strip_container = true
+  into = "sbt"
+  [bundle.jvm.upstream.sbt.amd64]
+  url = "https://github.com/sbt/sbt/releases/download/v2.0.5/sbt-2.0.5.tgz"
+  sha256 = "2a53c95403cb7fccd5da05d48cfe03ff4be573a3f3d0295a41963b109e756a18"
+  [bundle.jvm.upstream.sbt.arm64]
+  url = "https://github.com/sbt/sbt/releases/download/v2.0.5/sbt-2.0.5.tgz"
+  sha256 = "2a53c95403cb7fccd5da05d48cfe03ff4be573a3f3d0295a41963b109e756a18"
+
+[bundle.dotnet]
+description = "cdxgen with the .NET SDK it needs to restore packages.lock.json"
+built = []
+env = { DOTNET_CLI_HOME = "{prefix}/.dotnet", NUGET_PACKAGES = "{prefix}/.nuget", DOTNET_CLI_TELEMETRY_OPTOUT = "1" }
+# Without the SDK, cdxgen produces no SBOM at all for packages.lock.json --
+# measured, not assumed.
+
+  [bundle.dotnet.upstream.cdxgen]
+  version = "12.8.2"
+  kind = "raw"
+  bin_name = "cdxgen"
+  [bundle.dotnet.upstream.cdxgen.amd64]
+  url = "https://github.com/CycloneDX/cdxgen/releases/download/v12.8.2/cdxgen-linux-amd64-slim"
+  sha256 = "4b49a3cc09e4f5f8815058edf0a6d2feecc843f3eecf7649b75c86e21383b381"
+  [bundle.dotnet.upstream.cdxgen.arm64]
+  url = "https://github.com/CycloneDX/cdxgen/releases/download/v12.8.2/cdxgen-linux-arm64-slim"
+  sha256 = "d9bac95eaceef2a0eddf16b6a22e0ef1549ad827d488f44cb65be759f42aecd2"
+
+  [bundle.dotnet.upstream.dotnet]
+  version = "10.0.302"
+  into = "dotnet"
+  [bundle.dotnet.upstream.dotnet.amd64]
+  url = "https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.302/dotnet-sdk-10.0.302-linux-x64.tar.gz"
+  sha512 = "10069bec8783596484a610332f090d562802a41b9b40e3327a5a5688b572e10c296ae300f940d40461f23c157ed1b0843c2f8e6b3f20d8d8d9d83432d8143bac"
+  [bundle.dotnet.upstream.dotnet.arm64]
+  url = "https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.302/dotnet-sdk-10.0.302-linux-arm64.tar.gz"
+  sha512 = "9e409c14e00686d661c78fa4dd9ad0e4dcf695c328bd5ff777d05b4a9c34b42cf89b12573b92e9fb2f565dbe12016b4835f77c7d9a42b55a7494df21634cd5d6"

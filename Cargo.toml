@@ -1,0 +1,11 @@
+[package]
+name = "sbom-tools"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# Nothing here is compiled as a library. The package exists so cargo-cyclonedx
+# is pinned in Cargo's own manifest, where Dependabot maintains it, and so
+# `cargo install --locked` builds exactly what Cargo.lock records.
+[dependencies]
+cargo-cyclonedx = "=0.5.9"

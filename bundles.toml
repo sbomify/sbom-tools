@@ -16,7 +16,11 @@
 
 [bundle.go]
 description = "cyclonedx-gomod and the Go toolchain it invokes"
-built = ["cyclonedx-gomod"]
+# syft is here for SPDX. The native CycloneDX tools -- cyclonedx-gomod,
+# cargo-cyclonedx, the Maven/Gradle/sbt plugins -- emit CycloneDX and
+# nothing else, so a bundle without syft can serve only one of the two
+# formats. A bundle should be able to answer either question on its own.
+built = ["cyclonedx-gomod", "syft"]
 env = { GOMODCACHE = "{prefix}/.gomodcache", GOCACHE = "{prefix}/.gocache", GOPATH = "{prefix}/.gopath" }
 
   [bundle.go.upstream.go]
@@ -31,7 +35,11 @@ env = { GOMODCACHE = "{prefix}/.gomodcache", GOCACHE = "{prefix}/.gocache", GOPA
 
 [bundle.rust]
 description = "cargo-cyclonedx with the cargo and rustc it shells out to"
-built = ["cargo-cyclonedx"]
+# syft is here for SPDX. The native CycloneDX tools -- cyclonedx-gomod,
+# cargo-cyclonedx, the Maven/Gradle/sbt plugins -- emit CycloneDX and
+# nothing else, so a bundle without syft can serve only one of the two
+# formats. A bundle should be able to answer either question on its own.
+built = ["cargo-cyclonedx", "syft"]
 env = { CARGO_HOME = "{prefix}/.cargo" }
 # rust-std is deliberately absent: cargo-cyclonedx compiles nothing. Verified
 # by deleting lib/rustlib from a full toolchain, which changes nothing, while
@@ -77,7 +85,11 @@ built = ["cosign", "crane"]
 
 [bundle.cdxgen]
 description = "cdxgen alone, for the ecosystems it resolves without a toolchain"
-built = []
+# syft is here for SPDX. The native CycloneDX tools -- cyclonedx-gomod,
+# cargo-cyclonedx, the Maven/Gradle/sbt plugins -- emit CycloneDX and
+# nothing else, so a bundle without syft can serve only one of the two
+# formats. A bundle should be able to answer either question on its own.
+built = ["syft"]
 # The one thing here we do not compile, and not for want of trying. cdxgen's
 # published binary is a bundled Node application that resolves its data files
 # against __dirname, so `bun build --compile` of the package in its own
@@ -98,7 +110,11 @@ built = []
 
 [bundle.jvm]
 description = "cdxgen with the JDK, Maven, Gradle and sbt it shells out to"
-built = []
+# syft is here for SPDX. The native CycloneDX tools -- cyclonedx-gomod,
+# cargo-cyclonedx, the Maven/Gradle/sbt plugins -- emit CycloneDX and
+# nothing else, so a bundle without syft can serve only one of the two
+# formats. A bundle should be able to answer either question on its own.
+built = ["syft"]
 env = { JAVA_HOME = "{prefix}/jdk", MAVEN_ARGS = "-Dmaven.repo.local={prefix}/repository", GRADLE_USER_HOME = "{prefix}/.gradle", SBT_OPTS = "-Dsbt.global.base={prefix}/.sbt -Dsbt.ivy.home={prefix}/.ivy2 -Dsbt.coursier.home={prefix}/.coursier" }
 # Self-contained on purpose: cdxgen shells out to the build tool, and none of
 # them start without a JVM. Measured with cdxgen alone and no toolchain, a
@@ -170,9 +186,33 @@ env = { JAVA_HOME = "{prefix}/jdk", MAVEN_ARGS = "-Dmaven.repo.local={prefix}/re
   url = "https://github.com/sbt/sbt/releases/download/v1.12.14/sbt-1.12.14.tgz"
   sha256 = "cd17daae220ff264faa4251334522444518584f0eb2ee82da01523a9b9002b7e"
 
+  # The JVM bundle alone carries a converter, because the JVM alone needs one.
+  # syft catalogs artifacts on disk, and an unbuilt Maven source tree has no
+  # jars to catalog: it returns 38 packages for spring-petclinic where the
+  # Maven plugin resolves 106, and 92 for Keycloak against 340. Converting the
+  # native CycloneDX preserves every component -- measured, 106 in and 106 out.
+  #
+  # Not needed elsewhere. For Go and Rust syft's SPDX is already ahead of the
+  # native CycloneDX count (185 vs 157, 122 vs 65), because those trees carry
+  # their dependency information in files syft can read.
+  [bundle.jvm.upstream.cyclonedx-cli]
+  version = "0.33.1"
+  kind = "raw"
+  bin_name = "cyclonedx-cli"
+  [bundle.jvm.upstream.cyclonedx-cli.amd64]
+  url = "https://github.com/CycloneDX/cyclonedx-cli/releases/download/v0.33.1/cyclonedx-linux-x64"
+  sha256 = "bfc8b2538da86fe239bc53658bbb63c1c8c510a293c1e6891aa5bea5d3c58746"
+  [bundle.jvm.upstream.cyclonedx-cli.arm64]
+  url = "https://github.com/CycloneDX/cyclonedx-cli/releases/download/v0.33.1/cyclonedx-linux-arm64"
+  sha256 = "b2e9fdf9665ef49868a2ec012171c6e785dcd69745bc5869e53e4f4bfb096a5f"
+
 [bundle.dotnet]
 description = "cdxgen with the .NET SDK it needs to restore packages.lock.json"
-built = []
+# syft is here for SPDX. The native CycloneDX tools -- cyclonedx-gomod,
+# cargo-cyclonedx, the Maven/Gradle/sbt plugins -- emit CycloneDX and
+# nothing else, so a bundle without syft can serve only one of the two
+# formats. A bundle should be able to answer either question on its own.
+built = ["syft"]
 env = { DOTNET_CLI_HOME = "{prefix}/.dotnet", NUGET_PACKAGES = "{prefix}/.nuget", DOTNET_CLI_TELEMETRY_OPTOUT = "1" }
 # Without the SDK, cdxgen produces no SBOM at all for packages.lock.json --
 # measured, not assumed.

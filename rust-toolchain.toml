@@ -1,6 +1,15 @@
 # The Rust compiler these binaries are built with. Exact, never "stable": a
 # channel alias would silently change the compiler between builds, and the
 # provenance we attest is meant to describe something reproducible.
+#
+# musl targets, because the binaries must be static. A glibc-linked binary
+# carries an implicit dependency on the host's libc version, which for
+# something unpacked into an arbitrary container is a dependency we cannot
+# see and the consumer cannot satisfy.
 [toolchain]
 channel = "1.97.1"
 components = ["cargo", "rustc"]
+targets = [
+  "x86_64-unknown-linux-musl",
+  "aarch64-unknown-linux-musl",
+]

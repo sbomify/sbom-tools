@@ -74,7 +74,7 @@ jobs:
       # Every tool shares one go.sum, so a warm cache from any of them speeds
       # up the rest: an unchanged dependency graph is a cache hit.
       - name: Set up Go
-        uses: actions/setup-go@41dfa10bad2bb2ae585af6ee5bb4d7d973ad74ed # v5.1.0
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: true

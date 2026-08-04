@@ -258,7 +258,7 @@ jobs:
 
       - name: Attest build provenance
         id: attest
-        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v2.2.3
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v2.2.4.1.1
         with:
           subject-path: out/${{ matrix.bundle }}-linux-${{ matrix.arch }}.tar.gz
 

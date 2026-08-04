@@ -128,9 +128,25 @@ def add_upstream(name: str, spec: dict, arch: str, prefix: Path, scratch: Path) 
     if spec.get("strip_container"):
         strip_container(staging)
 
+    if payload := spec.get("payload"):
+        # A Rust dist tarball is an installer, not a tree to unpack: under the
+        # version-named wrapper it carries the component itself (cargo/,
+        # rustc/) alongside install.sh, components, git-commit-info and the
+        # licences. Merging all of that put two components' identical
+        # metadata files in each other's way, which is what "git-commit-info
+        # already exists in the bundle" was. Take the component, leave the
+        # installer.
+        inner = staging / str(payload)
+        if not inner.is_dir():
+            die(f"{name}: expected payload directory {payload!r} in the archive")
+        staging = inner
+
     into = prefix / spec["into"] if spec.get("into") else prefix
     into.mkdir(parents=True, exist_ok=True)
+    excluded = set(spec.get("exclude") or ())
     for entry in staging.iterdir():
+        if entry.name in excluded:
+            continue
         destination = into / entry.name
         if destination.exists():
             # Two components unpacking into one prefix (cargo and rustc) share

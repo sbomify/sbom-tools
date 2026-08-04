@@ -40,6 +40,11 @@ env = { CARGO_HOME = "{prefix}/.cargo" }
   [bundle.rust.upstream.cargo]
   version = "1.97.1"
   strip_container = true
+  payload = "cargo"
+  # rust-installer bookkeeping listing what install.sh would copy. We do not
+  # run install.sh, and both components ship one, so keeping them would just
+  # be two files fighting over the same name.
+  exclude = ["manifest.in"]
   [bundle.rust.upstream.cargo.amd64]
   url = "https://static.rust-lang.org/dist/cargo-1.97.1-x86_64-unknown-linux-gnu.tar.xz"
   sha256 = "e1be5f5ff7f7f80ca506fb65770b759edbdc6d303781ed71c5de8ec8a8394779"
@@ -50,6 +55,11 @@ env = { CARGO_HOME = "{prefix}/.cargo" }
   [bundle.rust.upstream.rustc]
   version = "1.97.1"
   strip_container = true
+  payload = "rustc"
+  # rust-installer bookkeeping listing what install.sh would copy. We do not
+  # run install.sh, and both components ship one, so keeping them would just
+  # be two files fighting over the same name.
+  exclude = ["manifest.in"]
   [bundle.rust.upstream.rustc.amd64]
   url = "https://static.rust-lang.org/dist/rustc-1.97.1-x86_64-unknown-linux-gnu.tar.xz"
   sha256 = "9819d0a32d56bd339585319c80260e332779f5541fd66838ab7e016d6c814819"

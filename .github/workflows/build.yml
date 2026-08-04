@@ -58,15 +58,21 @@ jobs:
           fi
 
   build-go:
-    name: ${{ matrix.tool }} (${{ matrix.slug }})
+    name: ${{ matrix.tool }} (${{ matrix.goarch }})
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { slug: linux-amd64, runner: ubuntu-latest, goarch: amd64 }
-          - { slug: linux-arm64, runner: ubuntu-24.04-arm, goarch: arm64 }
+        # goarch is a real matrix dimension, so this is a 4x2 cross product.
+        # Written as bare `include` entries it was not: an include object whose
+        # keys are absent from the base matrix merges into every combination,
+        # so both entries applied to all four tools and the second simply
+        # overwrote the first. Only arm64 was ever built.
         tool: [syft, cosign, crane, cyclonedx-gomod]
+        goarch: [amd64, arm64]
+        include:
+          - { goarch: amd64, runner: ubuntu-latest }
+          - { goarch: arm64, runner: ubuntu-24.04-arm }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -200,7 +206,10 @@ jobs:
             echo "::error::$BIN is not statically linked" >&2
             exit 1
           fi
-          "$BIN" --version
+          # A cargo subcommand: run directly it still wants the subcommand
+          # name as argv[1], exactly as the action invokes it. Plain
+          # `--version` gets parsed as a cargo command and exits 2.
+          "$BIN" cyclonedx --help >/dev/null
           sha256sum "$BIN" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

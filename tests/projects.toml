@@ -72,7 +72,10 @@ floor_spdx = 20
 bundle = "dotnet"
 repo = "HangfireIO/Hangfire"
 ref = "v1.8.15"
-lockfile = ".nuget/packages.lock.json"
+# A project's own lock file, not the repository-level one in .nuget/.
+# Hangfire keeps one per project, which is the normal .NET layout;
+# .nuget/ describes that directory and nothing else.
+lockfile = "samples/NetCoreSample/packages.lock.json"
 cdxgen_type = "dotnet"
 # .NET keeps project files at depth -- Hangfire's lock file is in .nuget/ --
 # so scanning only the root returns an empty document and exit code 0, which

@@ -270,29 +270,37 @@ def generate_cdxgen(
 
 
 def convert_to_spdx(cyclonedx: Path, out: Path, work: Path, env: dict[str, str]) -> int | None:
-    """Turn a CycloneDX document into SPDX without losing anything.
+    """Turn a CycloneDX document into SPDX.
 
-    Used where the ecosystem's own tool emits CycloneDX only and the generic
-    scanner cannot see the dependency graph. Measured on spring-petclinic:
-    106 components in, 106 packages out, as SPDX-2.3.
+    Used wherever the ecosystem's own tool emits CycloneDX only, which is all
+    of them: scanning instead means describing a different set of software.
+    Measured on spring-petclinic, 106 components in and 108 packages out at
+    99% purl coverage.
+
+    syft rather than cyclonedx-cli, which is equally faithful (106 packages,
+    100% purls) but a 77MB self-contained .NET binary. syft is already in
+    every bundle for its own sake, so conversion costs nothing.
     """
-    run(["cyclonedx-cli", "convert", "--input-file", str(cyclonedx),
-         "--output-file", str(out), "--output-format", "spdxjson"], work, env)
+    run(["syft", "convert", str(cyclonedx), "-o", f"spdx-json={out}"], work, env)
     return components(out, "spdx")
 
 
-def generate_maven_spdx(work: Path, env: dict[str, str], out: Path, fmt: str) -> int | None:
-    intermediate = out.with_suffix(".cdx.json")
-    if generate_maven(work, env, intermediate, "cyclonedx") is None:
-        return None
-    return convert_to_spdx(intermediate, out, work, env)
 
 
-def generate_sbt_spdx(work: Path, env: dict[str, str], out: Path, fmt: str) -> int | None:
-    intermediate = out.with_suffix(".cdx.json")
-    if generate_sbt(work, env, intermediate, "cyclonedx") is None:
-        return None
-    return convert_to_spdx(intermediate, out, work, env)
+
+def _via_conversion(inner):
+    """Generate CycloneDX with the native tool, then convert it."""
+
+    def generate(work: Path, env: dict[str, str], out: Path, fmt: str) -> int | None:
+        intermediate = out.with_suffix(".cdx.json")
+        if inner(work, env, intermediate, "cyclonedx") is None:
+            return None
+        return convert_to_spdx(intermediate, out, work, env)
+
+    # So the report names the tool that actually resolved the graph rather
+    # than the wrapper around it.
+    generate.__name__ = f"{inner.__name__.removeprefix('generate_')}+conv"
+    return generate
 
 
 def generate_syft(work: Path, env: dict[str, str], out: Path, fmt: str) -> int | None:
@@ -321,6 +329,12 @@ def generate_cargo(work: Path, env: dict[str, str], out: Path, fmt: str) -> int 
 #: only CycloneDX; SPDX falls to whichever generic scanner reads that
 #: ecosystem best. What matters is that each cell is the best available, not
 #: that one tool covers everything.
+generate_maven_spdx = _via_conversion(generate_maven)
+generate_sbt_spdx = _via_conversion(generate_sbt)
+generate_gradle_spdx = _via_conversion(generate_gradle)
+generate_gomod_spdx = _via_conversion(generate_gomod)
+generate_cargo_spdx = _via_conversion(generate_cargo)
+
 GENERATORS = {
     ("maven", "cyclonedx"): generate_maven,
     ("maven-large", "cyclonedx"): generate_maven,
@@ -336,6 +350,9 @@ GENERATORS = {
     ("maven", "spdx"): generate_maven_spdx,
     ("maven-large", "spdx"): generate_maven_spdx,
     ("sbt", "spdx"): generate_sbt_spdx,
+    ("gradle", "spdx"): generate_gradle_spdx,
+    ("go", "spdx"): generate_gomod_spdx,
+    ("rust", "spdx"): generate_cargo_spdx,
 }
 
 

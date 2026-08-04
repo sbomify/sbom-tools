@@ -186,26 +186,6 @@ env = { JAVA_HOME = "{prefix}/jdk", MAVEN_ARGS = "-Dmaven.repo.local={prefix}/re
   url = "https://github.com/sbt/sbt/releases/download/v1.12.14/sbt-1.12.14.tgz"
   sha256 = "cd17daae220ff264faa4251334522444518584f0eb2ee82da01523a9b9002b7e"
 
-  # The JVM bundle alone carries a converter, because the JVM alone needs one.
-  # syft catalogs artifacts on disk, and an unbuilt Maven source tree has no
-  # jars to catalog: it returns 38 packages for spring-petclinic where the
-  # Maven plugin resolves 106, and 92 for Keycloak against 340. Converting the
-  # native CycloneDX preserves every component -- measured, 106 in and 106 out.
-  #
-  # Not needed elsewhere. For Go and Rust syft's SPDX is already ahead of the
-  # native CycloneDX count (185 vs 157, 122 vs 65), because those trees carry
-  # their dependency information in files syft can read.
-  [bundle.jvm.upstream.cyclonedx-cli]
-  version = "0.33.1"
-  kind = "raw"
-  bin_name = "cyclonedx-cli"
-  [bundle.jvm.upstream.cyclonedx-cli.amd64]
-  url = "https://github.com/CycloneDX/cyclonedx-cli/releases/download/v0.33.1/cyclonedx-linux-x64"
-  sha256 = "bfc8b2538da86fe239bc53658bbb63c1c8c510a293c1e6891aa5bea5d3c58746"
-  [bundle.jvm.upstream.cyclonedx-cli.arm64]
-  url = "https://github.com/CycloneDX/cyclonedx-cli/releases/download/v0.33.1/cyclonedx-linux-arm64"
-  sha256 = "b2e9fdf9665ef49868a2ec012171c6e785dcd69745bc5869e53e4f4bfb096a5f"
-
 [bundle.dotnet]
 description = "cdxgen with the .NET SDK it needs to restore packages.lock.json"
 # syft is here for SPDX. The native CycloneDX tools -- cyclonedx-gomod,

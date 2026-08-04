@@ -42,7 +42,7 @@ repo = "square/okhttp"
 ref = "parent-5.0.0-alpha.14"
 lockfile = "build.gradle.kts"
 floor_cyclonedx = 100
-floor_spdx = 20
+floor_spdx = 100
 
 [project.sbt]
 bundle = "jvm"

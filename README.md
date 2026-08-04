@@ -136,16 +136,27 @@ A bundle should answer either question well, and the best tool differs:
 
 | ecosystem | CycloneDX | SPDX |
 | --- | --- | --- |
-| Maven | cyclonedx-maven-plugin | converted from CycloneDX |
-| Gradle | cyclonedx-gradle-plugin | syft |
-| sbt | sbt-sbom | converted from CycloneDX |
-| Go | cyclonedx-gomod | syft |
-| Rust | cargo-cyclonedx | syft |
+| Maven | cyclonedx-maven-plugin | converted from it |
+| Gradle | cyclonedx-gradle-plugin | converted from it |
+| sbt | sbt-sbom | converted from it |
+| Go | cyclonedx-gomod | converted from it |
+| Rust | cargo-cyclonedx | converted from it |
 | everything else | cdxgen | syft |
 
-The JVM converts rather than scanning because syft catalogs artifacts on
-disk, and an unbuilt Maven source tree has no jars to catalog: 38 packages
-for spring-petclinic where the plugin resolves 106, and 92 for Keycloak
-against 340. Conversion keeps all of them. Go and Rust do not convert,
-because syft is already ahead there (185 against 157, 122 against 65) —
-those trees carry their dependency information in files it can read.
+Wherever an ecosystem has its own resolver, SPDX is converted from that
+rather than scanned for — the resolver knows the dependency graph and a
+scanner is guessing at it from files on disk.
+
+Comparing the two directly is what settled it, and the counts alone were
+misleading. syft reports **more** packages than the Gradle plugin for
+okhttp, 306 against 288, and the two sets turn out to be **completely
+disjoint**: syft's are `@colors/colors` and `@jridgewell/*`, because okhttp
+carries a JavaScript toolchain for its docs. It was cataloguing
+`node_modules`, not Java. For hugo and fd syft is a strict superset whose
+extras are `actions/checkout` and `actions/setup-go` — GitHub Actions from
+`.github/workflows`, which are not part of the shipped software.
+
+Conversion uses syft, which is already in every bundle. cyclonedx-cli is
+marginally more faithful (106 packages at 100% purls against 108 at 99%)
+but is a 77MB self-contained .NET binary, which is a poor trade for one
+percent.

@@ -164,11 +164,18 @@ def write_manifest(bundle: str, spec: dict, arch: str, prefix: Path, provides: l
     # keeps java in jdk/bin and Maven keeps mvn in maven/bin, so a single
     # bin_subdir would advertise cdxgen and hide the two tools it shells
     # out to.
-    bin_dirs = ["bin"] + sorted(
-        f"{c['into']}/bin"
-        for c in (spec.get("upstream") or {}).values()
-        if c.get("into") and (prefix / c["into"] / "bin").is_dir()
-    )
+    extra: set[str] = set()
+    for component in (spec.get("upstream") or {}).values():
+        # An explicit bin_dir wins: the .NET SDK puts its executable at the
+        # root of its payload rather than under bin/, so deriving "<into>/bin"
+        # found nothing and dotnet never reached PATH.
+        if declared := component.get("bin_dir"):
+            if (prefix / str(declared)).is_dir():
+                extra.add(str(declared))
+            continue
+        if component.get("into") and (prefix / component["into"] / "bin").is_dir():
+            extra.add(f"{component['into']}/bin")
+    bin_dirs = ["bin"] + sorted(extra)
     lines = [
         "# Written by scripts/assemble_bundle.py. Read this rather than",
         "# assuming a layout: it is what lets a consumer support a new bundle",

@@ -1,0 +1,6 @@
+# The Rust compiler these binaries are built with. Exact, never "stable": a
+# channel alias would silently change the compiler between builds, and the
+# provenance we attest is meant to describe something reproducible.
+[toolchain]
+channel = "1.97.1"
+components = ["cargo", "rustc"]

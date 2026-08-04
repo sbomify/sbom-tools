@@ -153,16 +153,22 @@ env = { JAVA_HOME = "{prefix}/jdk", MAVEN_ARGS = "-Dmaven.repo.local={prefix}/re
 
   # Gradle and sbt are JVM applications, so one architecture-independent
   # archive serves both. Only the JDK below differs per architecture.
+  # sbt 1.x, not 2.x. Picking "latest" put 2.0.5 here, and 2.x is a major
+  # rewrite: its launcher dies with a ClassCastException before any project
+  # loads, and cdxgen's dependency-graph plugin is published only for sbt 1.x
+  # -- it fails to resolve sbt-dependency-graph_sbt2_3. Real projects pin 1.x
+  # too (cats pins 1.10.0), and the launcher honours project/build.properties,
+  # so shipping 1.x also lets a project select its own.
   [bundle.jvm.upstream.sbt]
-  version = "2.0.5"
+  version = "1.12.14"
   strip_container = true
   into = "sbt"
   [bundle.jvm.upstream.sbt.amd64]
-  url = "https://github.com/sbt/sbt/releases/download/v2.0.5/sbt-2.0.5.tgz"
-  sha256 = "2a53c95403cb7fccd5da05d48cfe03ff4be573a3f3d0295a41963b109e756a18"
+  url = "https://github.com/sbt/sbt/releases/download/v1.12.14/sbt-1.12.14.tgz"
+  sha256 = "cd17daae220ff264faa4251334522444518584f0eb2ee82da01523a9b9002b7e"
   [bundle.jvm.upstream.sbt.arm64]
-  url = "https://github.com/sbt/sbt/releases/download/v2.0.5/sbt-2.0.5.tgz"
-  sha256 = "2a53c95403cb7fccd5da05d48cfe03ff4be573a3f3d0295a41963b109e756a18"
+  url = "https://github.com/sbt/sbt/releases/download/v1.12.14/sbt-1.12.14.tgz"
+  sha256 = "cd17daae220ff264faa4251334522444518584f0eb2ee82da01523a9b9002b7e"
 
 [bundle.dotnet]
 description = "cdxgen with the .NET SDK it needs to restore packages.lock.json"

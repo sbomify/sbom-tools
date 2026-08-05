@@ -1,0 +1,116 @@
+---
+# SBOMs for the tool stacks this repository builds.
+#
+# These lived in sbomify-action while the lock files did. They moved here with
+# tools/go.mod and tools/Cargo.lock, and the workflow followed: a repository
+# should describe the dependencies it actually has. The entries left behind
+# pointed at paths that no longer existed, which is the failure mode worth
+# avoiding -- a matrix row naming a deleted file still looks like coverage.
+#
+# The components are the same ones the action published, because they describe
+# the same stacks: the Go tools (syft, cosign, crane, cyclonedx-gomod) and the
+# Rust one (cargo-cyclonedx). Uploading them from here rather than from the
+# action changes where the SBOM is produced, not what it describes.
+#
+# Two environments, chosen from the triggering ref, matching the action:
+#   * staging     -- every push to master -> stage.sbomify.com
+#   * production  -- a published release  -> app.sbomify.com
+name: sboms
+
+on:
+  push:
+    branches: [master]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+# One run per ref. Two pushes to master would otherwise race to upload the
+# same component version.
+concurrency:
+  group: sboms-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  sbom:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # required to mint the GitHub OIDC JWT
+      contents: read
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        # Each row carries both component IDs; the env block picks one.
+        #
+        # bun.lock has no row yet: cdxgen is pinned there and deserves the same
+        # treatment, but no component exists for it and inventing an ID would
+        # upload into nothing. Adding one is a console action, not a code one.
+        include:
+          - name: go-tools-cyclonedx
+            component_name: sbomify Action - Go Stack
+            staging_id: RTJwLK2FfnCf
+            prod_id: Z3h0vxP1WMTs
+            lockfile: go.mod
+            sbom_format: cyclonedx
+            output_file: sbom-tools-go.cdx.json
+          - name: go-tools-spdx
+            component_name: sbomify Action - Go Stack
+            staging_id: RTJwLK2FfnCf
+            prod_id: Z3h0vxP1WMTs
+            lockfile: go.mod
+            sbom_format: spdx
+            output_file: sbom-tools-go.spdx.json
+          - name: rust-tools-cyclonedx
+            component_name: sbomify Action - Rust Stack
+            staging_id: Cc1VJdfrm72W
+            prod_id: lTIkL5r8HjYt
+            lockfile: Cargo.lock
+            sbom_format: cyclonedx
+            output_file: sbom-tools-rust.cdx.json
+          - name: rust-tools-spdx
+            component_name: sbomify Action - Rust Stack
+            staging_id: Cc1VJdfrm72W
+            prod_id: lTIkL5r8HjYt
+            lockfile: Cargo.lock
+            sbom_format: spdx
+            output_file: sbom-tools-rust.spdx.json
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - id: cfg
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            {
+              echo "is_prod=true"
+              echo "version=${{ github.event.release.tag_name }}"
+              echo "api_base_url=https://app.sbomify.com"
+              echo "oidc_audience=sbomify.com"
+            } >> "$GITHUB_OUTPUT"
+          else
+            {
+              echo "is_prod=false"
+              echo "version=${GITHUB_SHA:0:7}"
+              echo "api_base_url=https://stage.sbomify.com"
+              echo "oidc_audience=stage.sbomify.com"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: sbomify/sbomify-action@master
+        env:
+          API_BASE_URL: ${{ steps.cfg.outputs.api_base_url }}
+          OIDC_AUDIENCE: ${{ steps.cfg.outputs.oidc_audience }}
+          COMPONENT_ID: ${{ steps.cfg.outputs.is_prod == 'true' && matrix.prod_id || matrix.staging_id }}
+          COMPONENT_NAME: ${{ matrix.component_name }}
+          COMPONENT_VERSION: ${{ steps.cfg.outputs.version }}
+          LOCK_FILE: ${{ matrix.lockfile }}
+          SBOM_FORMAT: ${{ matrix.sbom_format }}
+          UPLOAD: 'true'
+          AUGMENT: 'true'
+          ENRICH: 'true'
+          OUTPUT_FILE: ${{ matrix.output_file }}
+          SBOMIFY_CACHE_DIR: ${{ github.workspace }}/.sbomify-cache
+
+      - uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-path: '${{ github.workspace }}/${{ matrix.output_file }}'

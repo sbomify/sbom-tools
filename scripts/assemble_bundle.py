@@ -274,6 +274,37 @@ def install_from_lockfile(prefix: Path, scratch: Path) -> None:
     print(f"  cdxgen installed from bun.lock ({sum(1 for _ in (prefix / 'node_modules').iterdir())} packages)")
 
 
+#: Build plugins the bundle's tools fetch at run time, and where their pinned
+#: versions are read from.
+#:
+#: These are not installed into the bundle -- Maven, Gradle and sbt download
+#: them themselves -- but the consumer has to name a version when it applies
+#: them, and that version has to come from somewhere a bot watches. Recording
+#: it in bundle.toml means the consumer reads it off the bundle it already
+#: fetched instead of carrying its own copy of these manifests.
+PLUGIN_PINS = {
+    "cyclonedx-maven": ("tools/pom.xml", "cyclonedx-maven-plugin"),
+    "sbt-sbom": ("tools/pom.xml", "sbt-sbom_2.12_1.0"),
+    "cyclonedx-gradle": ("tools/build.gradle", "org.cyclonedx:cyclonedx-gradle-plugin"),
+}
+
+
+def _plugin_version(manifest: str, selector: str) -> str:
+    """The pinned version of one build plugin, from the manifest that owns it."""
+    text = (ROOT / manifest).read_text()
+    if manifest.endswith(".xml"):
+        # <artifactId>X</artifactId> ... <version>V</version>, in that order.
+        match = re.search(
+            rf"<artifactId>{re.escape(selector)}</artifactId>\s*<version>([^<]+)</version>",
+            text,
+        )
+    else:
+        match = re.search(rf'{re.escape(selector)}:([0-9][^"\'\s]*)', text)
+    if not match:
+        die(f"{selector} not found in {manifest}")
+    return match.group(1).strip()  # type: ignore[union-attr]
+
+
 def write_manifest(bundle: str, spec: dict, arch: str, prefix: Path, provides: list[str]) -> None:
     """Describe the bundle to whoever unpacks it."""
     # Every directory holding executables, not just the top one. A JDK
@@ -303,6 +334,16 @@ def write_manifest(bundle: str, spec: dict, arch: str, prefix: Path, provides: l
         f"provides = [{', '.join(repr(p) for p in sorted(provides))}]".replace("'", '"'),
         f"bin_dirs = [{', '.join(chr(34) + d + chr(34) for d in bin_dirs)}]",
     ]
+    if spec.get("build_plugins"):
+        lines.append("")
+        lines.append("# Plugins the tools here fetch at run time. A consumer applies these")
+        lines.append("# by coordinate and needs the version; reading it from the bundle")
+        lines.append("# saves it from keeping its own copy of the manifests that pin them.")
+        lines.append("[plugins]")
+        for name in sorted(PLUGIN_PINS):
+            manifest, selector = PLUGIN_PINS[name]
+            lines.append(f'{name} = "{_plugin_version(manifest, selector)}"')
+
     env = spec.get("env") or {}
     if env:
         lines.append("")

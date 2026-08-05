@@ -153,7 +153,27 @@ jobs:
             echo "::error::$BIN is not statically linked" >&2
             exit 1
           fi
-          "$BIN" version || "$BIN" --version
+          if [ "${{ matrix.tool }}" = "cdxgen-launcher" ]; then
+            # The launcher has no version of its own to print: it execs the
+            # bun sitting beside it in an assembled bundle, and outside one
+            # there is nothing to exec. Asserting `--version` here asked it to
+            # do the one thing it cannot, and it correctly refused -- which
+            # failed the build. What is worth asserting is the refusal itself:
+            # a clear diagnostic and a non-zero exit rather than a crash or a
+            # silent success. Whether it finds bun when there *is* one is
+            # covered by the integration suite, which assembles the bundle.
+            if OUT=$("$BIN" --version 2>&1); then
+              echo "::error::$BIN succeeded with no bun beside it" >&2
+              exit 1
+            fi
+            echo "$OUT"
+            case "$OUT" in
+              *"bundle is incomplete"*) ;;
+              *) echo "::error::$BIN failed without the expected diagnostic" >&2; exit 1 ;;
+            esac
+          else
+            "$BIN" version || "$BIN" --version
+          fi
           sha256sum "$BIN" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

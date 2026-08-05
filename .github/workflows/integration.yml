@@ -32,15 +32,24 @@ permissions:
 
 jobs:
   integration:
-    name: ${{ matrix.bundle }}
+    name: ${{ matrix.bundle }} (${{ matrix.arch }})
     # A bundle can take a while: Keycloak is a large reactor and Gradle
     # resolves from the network.
     timeout-minutes: 90
-    runs-on: ubuntu-latest
+    # Matched to the architecture being tested. Until now this ran amd64 only,
+    # so half of what we publish had generated an SBOM exactly never --
+    # build.yml executes each arm64 binary for its version string, which proves
+    # it loads, not that it can resolve a real project's dependencies. An
+    # immutable release should not be the first time that is tried.
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
         bundle: [jvm, go, rust, dotnet, cdxgen]
+        arch: [amd64, arm64]
+        include:
+          - { arch: amd64, runner: ubuntu-latest }
+          - { arch: arm64, runner: ubuntu-24.04-arm }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -54,14 +63,14 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/sbom-tools-it
-          key: it-${{ matrix.bundle }}-${{ hashFiles('tests/projects.toml', 'bundles.toml') }}
-          restore-keys: it-${{ matrix.bundle }}-
+          key: it-${{ matrix.bundle }}-${{ matrix.arch }}-${{ hashFiles('tests/projects.toml', 'bundles.toml') }}
+          restore-keys: it-${{ matrix.bundle }}-${{ matrix.arch }}-
 
       - name: Run
         if: github.event.inputs.bundle == '' || github.event.inputs.bundle == matrix.bundle
-        run: python tests/integration.py --bundle ${{ matrix.bundle }}
+        run: python tests/integration.py --bundle ${{ matrix.bundle }} --arch ${{ matrix.arch }}
 
       - name: Report
         if: always()
         run: |
-          echo "bundle ${{ matrix.bundle }} - ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "bundle ${{ matrix.bundle }} (${{ matrix.arch }}) - ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"

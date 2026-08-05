@@ -356,10 +356,25 @@ GENERATORS = {
 }
 
 
-def generator_for(project: str, fmt: str):
+#: Bundles whose ecosystem has one native generator, whatever the project.
+#: Keyed by bundle rather than project so adding a project cannot silently
+#: route to the wrong tool -- go-osv did exactly that, falling through to
+#: cdxgen, which the go bundle does not even contain.
+BY_BUNDLE = {
+    ("go", "cyclonedx"): generate_gomod,
+    ("go", "spdx"): generate_gomod_spdx,
+    ("rust", "cyclonedx"): generate_cargo,
+    ("rust", "spdx"): generate_cargo_spdx,
+}
+
+
+def generator_for(project: str, fmt: str, bundle: str = ""):
     """Which generator runs for this cell, and what it is called."""
     if (project, fmt) in GENERATORS:
         fn = GENERATORS[(project, fmt)]
+        return fn, fn.__name__.removeprefix("generate_")
+    if (bundle, fmt) in BY_BUNDLE:
+        fn = BY_BUNDLE[(bundle, fmt)]
         return fn, fn.__name__.removeprefix("generate_")
     # Everything else: cdxgen where it works, syft as the generic reader.
     if fmt == "spdx":
@@ -377,9 +392,20 @@ def run_case(name: str, spec: dict, fmt: str, local: Path | None, arch: str) -> 
     staging.mkdir(parents=True, exist_ok=True)
     work = Path(tempfile.mkdtemp(dir=staging)) / "p"
     try:
-        shutil.copytree(source, work, ignore=shutil.ignore_patterns(".git"))
+        # symlinks=True copies links as links. Following them instead breaks
+        # on syft, which ships deliberately-dangling symlinks and a
+        # self-referential loop as file-resolver test fixtures. Real trees
+        # contain hostile symlinks and the generators have to cope, so the
+        # harness should not flinch first.
+        shutil.copytree(
+            source,
+            work,
+            symlinks=True,
+            ignore_dangling_symlinks=True,
+            ignore=shutil.ignore_patterns(".git"),
+        )
         out = work.parent / f"sbom.{fmt}.json"
-        generate, label = generator_for(name, fmt)
+        generate, label = generator_for(name, fmt, spec["bundle"])
         try:
             if generate is generate_cdxgen:
                 count = generate(work, bundle.environment(), out, fmt,

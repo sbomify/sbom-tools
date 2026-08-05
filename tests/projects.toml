@@ -130,3 +130,39 @@ lockfile = "pubspec.lock"
 cdxgen_type = "dart"
 floor_cyclonedx = 20
 floor_spdx = 20
+
+# The remaining lockfile-based apps from sbomify/library, which tracks these
+# same projects and generates SBOMs for them in production. If the test bed
+# and the library disagree about a project, one of them is wrong, and it is
+# better to find that here.
+
+[project.keycloak-js]
+bundle = "cdxgen"
+repo = "keycloak/keycloak"
+ref = "26.4.7"
+subdir = "js"
+lockfile = "pnpm-lock.yaml"
+cdxgen_type = "javascript"
+# pnpm, which no other project here exercises -- the JavaScript fixture is npm
+# and the Ruby one bundler.
+floor_cyclonedx = 5
+floor_spdx = 5
+
+[project.go-osv]
+bundle = "go"
+repo = "google/osv-scanner"
+ref = "v2.3.1"
+lockfile = "go.mod"
+floor_cyclonedx = 20
+floor_spdx = 20
+
+[project.go-syft]
+bundle = "go"
+repo = "anchore/syft"
+ref = "v1.39.0"
+lockfile = "go.mod"
+# syft generating an SBOM of syft. A large Go module graph, and one whose
+# contents we can sanity-check by eye.
+floor_cyclonedx = 100
+floor_spdx = 100
+

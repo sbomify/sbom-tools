@@ -255,13 +255,19 @@ def install_from_lockfile(prefix: Path, scratch: Path) -> None:
     """
     for name in ("package.json", "bun.lock"):
         shutil.copy(ROOT / name, prefix / name)
-    # bun is used to install, not to run: it reads bun.lock and verifies each
-    # package against the sha512 recorded there. It is a build-time tool and
-    # is not shipped -- the bundle carries Node, which is what cdxgen runs
-    # under.
-    bun = shutil.which("bun")
+    # The bun already in the prefix, which the runtime step fetched and checked
+    # against its pinned sha256 moments ago. Requiring one on the host instead
+    # broke every cdxgen-bearing bundle the first time this ran in CI, where no
+    # bun is installed -- and "install one in the build environment" would have
+    # meant a second bun, from somewhere else, pinned by nothing, doing the
+    # integrity check that is the entire point of installing from a lockfile.
+    #
+    # It reads bun.lock and verifies each package against the sha512 recorded
+    # there. It is also what cdxgen runs under, so it ships either way.
+    bundled = prefix / "bin" / "bun"
+    bun = str(bundled) if bundled.is_file() else shutil.which("bun")
     if not bun:
-        die("bun is required to install from bun.lock; install it in the build environment")
+        die("no bun in the prefix and none on PATH; the bun runtime must be added before this step")
     result = subprocess.run(  # noqa: S603
         [bun, "install", "--frozen-lockfile", "--production", "--omit=optional"],
         cwd=prefix, capture_output=True, text=True, timeout=1800,

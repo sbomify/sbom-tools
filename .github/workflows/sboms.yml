@@ -13,8 +13,12 @@
 # fetching the jvm bundle gets ~466MB of toolchain; describing only the four Go
 # modules we compiled would answer a question nobody asked.
 #
-# Bundles are scanned with the syft inside them and uploaded as a finished
-# document. Pointing the action at the unpacked directory is better -- it adds
+# Bundles are scanned with the syft from the syft bundle, fetched once per job.
+# The first version used the syft inside each bundle, which is wrong: the
+# sigstore bundle ships cosign and crane and nothing else, so that job died
+# with "unpacked/bin/syft: No such file or directory". Taking the scanner from
+# a known bundle rather than the one under test also means the scanner does
+# not vary with the subject. Pointing the action at the unpacked directory is better -- it adds
 # enrichment and augmentation -- and sbomify-action grew a directory input for
 # exactly that, but the released image has not got it yet: every bundle job
 # failed with "Specified input file 'unpacked' not found" because the running
@@ -219,7 +223,12 @@ jobs:
           PREFIX="$PWD/unpacked"
           mkdir -p "$PREFIX"
           tar xzf "$ASSET" -C "$PREFIX"
-          "$PREFIX/bin/syft" scan "dir:$PREFIX" \
+          # The scanner, from the bundle whose whole purpose is to carry it.
+          gh release download "${{ steps.cfg.outputs.release }}" --repo "$GITHUB_REPOSITORY" \
+            --pattern "syft-linux-amd64.tar.gz" --dir . --clobber
+          mkdir -p scanner
+          tar xzf syft-linux-amd64.tar.gz -C scanner
+          ./scanner/bin/syft scan "dir:$PREFIX" \
             -o "cyclonedx-json=$PWD/bundle-${{ matrix.bundle }}.cdx.json" \
             --source-name "sbom-tools-${{ matrix.bundle }}"
 

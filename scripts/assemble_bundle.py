@@ -24,6 +24,8 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
+import re
 import shutil
 import subprocess
 import sys
@@ -36,6 +38,68 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 CHUNK = 1 << 20
+
+
+def _version_from_go_toolchain(path: Path) -> str:
+    """The toolchain directive in go.mod, not the go one.
+
+    `go` is the minimum the module graph builds with; `toolchain` is what we
+    actually build and ship.
+    """
+    text = path.read_text()
+    for pattern in (r"^toolchain\s+go(\S+)", r"^go\s+(\S+)"):
+        if match := re.search(pattern, text, re.M):
+            return match.group(1)
+    die(f"{path} has neither a toolchain nor a go directive")
+    raise AssertionError  # unreachable; die exits
+
+
+def _version_from_bun_lock(path: Path, package: str) -> str:
+    """A package's resolved version in bun.lock.
+
+    Matched rather than parsed: bun.lock is JSONC, which json rejects.
+    """
+    pattern = re.compile(rf'"{re.escape(package)}":\s*\[\s*"{re.escape(package)}@([^"]+)"')
+    match = pattern.search(path.read_text())
+    if not match:
+        die(f"{package} not found in {path}")
+    version = match.group(1)  # type: ignore[union-attr]
+    if not re.fullmatch(r"\d[\w.+-]*", version):
+        die(f"{package} in {path} resolves to {version!r}, which is not a released version")
+    return version
+
+
+def _version_from_global_json(path: Path) -> str:
+    """The SDK version in global.json."""
+    return str(json.loads(path.read_text())["sdk"]["version"])
+
+
+#: Where a component's version comes from, when it comes from a manifest a bot
+#: maintains rather than a literal here.
+VERSION_READERS = {
+    "go.mod": lambda p, _s: _version_from_go_toolchain(p),
+    "bun.lock": lambda p, s: _version_from_bun_lock(p, str(s["package"])),
+    "global.json": lambda p, _s: _version_from_global_json(p),
+}
+
+
+def resolve_version(spec: dict) -> str:
+    """A component's version, from its manifest where one owns it.
+
+    Restating a version here would put it out of Dependabot's reach, which is
+    how a pin goes stale without anything failing: a tool that is still
+    downloadable never complains about being old.
+    """
+    source = spec.get("version_from")
+    if not source:
+        return str(spec["version"])
+    path = ROOT / str(source["file"])
+    if not path.exists():
+        die(f"{source['file']} not found (looked in {path})")
+    reader = VERSION_READERS.get(path.name)
+    if reader is None:
+        die(f"no version reader for {path.name}")
+    return reader(path, source)  # type: ignore[misc]
 
 
 def die(message: str) -> None:
@@ -112,7 +176,10 @@ def add_upstream(name: str, spec: dict, arch: str, prefix: Path, scratch: Path) 
     if not algorithm:
         die(f"{name}/{arch}: needs a sha256 or sha512")
 
-    url = per_arch["url"]
+    # {version} in a URL follows the manifest the version came from, so a
+    # Dependabot bump reaches the download instead of leaving it pointing at
+    # the old release with a digest that no longer matches.
+    url = str(per_arch["url"]).replace("{version}", resolve_version(spec))
     if spec.get("kind") == "raw":
         # A bare executable, e.g. cdxgen's single-file build.
         target = prefix / "bin" / spec.get("bin_name", name)
@@ -127,6 +194,20 @@ def add_upstream(name: str, spec: dict, arch: str, prefix: Path, scratch: Path) 
     safe_extract(archive, staging)
     if spec.get("strip_container"):
         strip_container(staging)
+
+    if keep := spec.get("keep"):
+        # Some distributions are mostly things the bundle will never use --
+        # Node ships 84MB of headers and npm alongside the interpreter. Keep
+        # the named paths and drop the rest.
+        wanted = {str(k) for k in keep}
+        for entry in sorted(staging.rglob("*"), reverse=True):
+            rel = str(entry.relative_to(staging))
+            if any(rel == w or rel.startswith(w + "/") or w.startswith(rel + "/") for w in wanted):
+                continue
+            if entry.is_dir():
+                shutil.rmtree(entry, ignore_errors=True)
+            else:
+                entry.unlink(missing_ok=True)
 
     if payload := spec.get("payload"):
         # A Rust dist tarball is an installer, not a tree to unpack: under the
@@ -156,6 +237,41 @@ def add_upstream(name: str, spec: dict, arch: str, prefix: Path, scratch: Path) 
                 continue
             die(f"{name}: {destination.name} already exists in the bundle")
         shutil.move(str(entry), str(destination))
+
+
+def install_from_lockfile(prefix: Path, scratch: Path) -> None:
+    """Install cdxgen from bun.lock, letting bun do the verifying.
+
+    cdxgen is one of our tools, so it is pinned where the rest are -- in a
+    lockfile, checked by the package manager that owns it. bun.lock records a
+    sha512 for it and 197 other packages, and --frozen-lockfile refuses
+    anything that does not match. Shipping upstream's prebuilt binary instead
+    meant a second pin: our own sha256, of a different artefact, in a file no
+    bot can read.
+
+    --omit=optional drops 375MB of per-platform plugin binaries nothing here
+    uses; verified identical output without them, 99 components for
+    symfony/demo either way.
+    """
+    for name in ("package.json", "bun.lock"):
+        shutil.copy(ROOT / name, prefix / name)
+    # bun is used to install, not to run: it reads bun.lock and verifies each
+    # package against the sha512 recorded there. It is a build-time tool and
+    # is not shipped -- the bundle carries Node, which is what cdxgen runs
+    # under.
+    bun = shutil.which("bun")
+    if not bun:
+        die("bun is required to install from bun.lock; install it in the build environment")
+    result = subprocess.run(  # noqa: S603
+        [bun, "install", "--frozen-lockfile", "--production", "--omit=optional"],
+        cwd=prefix, capture_output=True, text=True, timeout=1800,
+    )
+    if result.returncode != 0:
+        die(f"bun install failed: {(result.stderr or result.stdout).strip()[:300]}")
+    installed = prefix / "node_modules" / "@cyclonedx" / "cdxgen" / "bin" / "cdxgen.js"
+    if not installed.is_file():
+        die("bun install completed but cdxgen is not present")
+    print(f"  cdxgen installed from bun.lock ({sum(1 for _ in (prefix / 'node_modules').iterdir())} packages)")
 
 
 def write_manifest(bundle: str, spec: dict, arch: str, prefix: Path, provides: list[str]) -> None:
@@ -216,19 +332,28 @@ def main() -> int:
         (prefix / "bin").mkdir(parents=True)
         provides: list[str] = []
 
+        # The launcher is built under its own name so it does not collide with
+        # the package it runs, but it goes on PATH as cdxgen.
+        installed_as = {"cdxgen-launcher": "cdxgen"}
+
         for tool in spec.get("built", []):
             source = args.built_dir / f"{tool}-linux-{args.arch}"
             if not source.is_file():
                 die(f"{tool}: {source} is missing; build it before assembling")
-            target = prefix / "bin" / tool
+            name = installed_as.get(tool, tool)
+            target = prefix / "bin" / name
             shutil.copy2(source, target)
             target.chmod(0o755)
-            provides.append(tool)
-            print(f"  included {tool} (built here)")
+            if name not in provides:
+                provides.append(name)
+            print(f"  included {name} (built here)")
 
         for name, upstream in (spec.get("upstream") or {}).items():
             add_upstream(name, upstream, args.arch, prefix, scratch)
             provides.append(name)
+
+        if spec.get("npm_install"):
+            install_from_lockfile(prefix, scratch)
 
         write_manifest(args.bundle, spec, args.arch, prefix, provides)
 

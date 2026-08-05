@@ -299,16 +299,23 @@ jobs:
       # fetching all of it from vendor CDNs on every build, for artifacts
       # pinned to an exact digest and therefore incapable of changing.
       #
-      # Keyed on bundles.toml because that file holds the pins: a version bump
-      # changes the key and the new artifact is fetched once. Entries are named
-      # by digest and re-hashed before use, so a restored cache can only ever
-      # supply the exact bytes the manifest asks for.
+      # Keyed per bundle, not per architecture. Sharing one key across the
+      # seven bundle jobs meant they raced for it -- six lost with "Unable to
+      # reserve cache with key ..., another job may be creating this cache" --
+      # and the winner saved only the subset it had downloaded. The next build
+      # then found nothing and fetched everything again, which is how the first
+      # version of this cache managed to never once hit.
+      #
+      # bundles.toml holds the pins, so a version bump changes the key and the
+      # new artifact is fetched once. Entries are named by digest and re-hashed
+      # before use, so a restored cache can only ever supply the exact bytes
+      # the manifest asks for.
       - name: Cache the pinned vendor downloads
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/sbom-tools/downloads
-          key: vendor-${{ matrix.arch }}-${{ hashFiles('bundles.toml') }}
-          restore-keys: vendor-${{ matrix.arch }}-
+          key: vendor-${{ matrix.bundle }}-${{ matrix.arch }}-${{ hashFiles('bundles.toml') }}
+          restore-keys: vendor-${{ matrix.bundle }}-${{ matrix.arch }}-
 
       - name: Assemble
         run: python3 scripts/assemble_bundle.py --bundle ${{ matrix.bundle }} --arch ${{ matrix.arch }}

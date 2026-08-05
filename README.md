@@ -102,3 +102,61 @@ distro container to produce theirs, and a worse copy of an artifact they
 already test helps nobody.
 
 Consumers pin those upstream, by digest.
+
+## Integration tests
+
+Building a bundle proves the archive assembles. It does not prove the tools
+inside it can produce an SBOM of a real project, and every defect worth
+finding so far has been of the second kind — the .NET SDK sitting at the
+payload root so nothing reached `PATH`, sbt 2.x whose launcher dies before a
+build loads, a Gradle plugin class spelled `CyclonedxPlugin` rather than
+`CycloneDxPlugin`. Each of those assembled, verified and published perfectly
+well.
+
+`tests/integration.py` clones real repositories, runs each bundle's tools
+against them, and checks the result is worth having:
+
+```console
+$ python tests/integration.py --bundle jvm
+project       bundle   format     generator     count  floor  verdict
+maven         jvm      cyclonedx  maven           106     40  ok
+maven         jvm      spdx       maven_spdx      106     40  ok
+maven-large   jvm      cyclonedx  maven           340    200  ok
+...
+```
+
+Every project has a floor because a zero-component SBOM is not an error to
+any of these tools — it validates, it uploads, and it looks like success.
+Floors catch "empty" and "collapsed", not small changes in what upstream
+reports.
+
+### Both formats, best tool for each
+
+A bundle should answer either question well, and the best tool differs:
+
+| ecosystem | CycloneDX | SPDX |
+| --- | --- | --- |
+| Maven | cyclonedx-maven-plugin | converted from it |
+| Gradle | cyclonedx-gradle-plugin | converted from it |
+| sbt | sbt-sbom | converted from it |
+| Go | cyclonedx-gomod | converted from it |
+| Rust | cargo-cyclonedx | converted from it |
+| everything else | cdxgen | syft |
+
+Wherever an ecosystem has its own resolver, SPDX is converted from that
+rather than scanned for — the resolver knows the dependency graph and a
+scanner is guessing at it from files on disk.
+
+Comparing the two directly is what settled it, and the counts alone were
+misleading. syft reports **more** packages than the Gradle plugin for
+okhttp, 306 against 288, and the two sets turn out to be **completely
+disjoint**: syft's are `@colors/colors` and `@jridgewell/*`, because okhttp
+carries a JavaScript toolchain for its docs. It was cataloguing
+`node_modules`, not Java. For hugo and fd syft is a strict superset whose
+extras are `actions/checkout` and `actions/setup-go` — GitHub Actions from
+`.github/workflows`, which are not part of the shipped software.
+
+Conversion uses syft, which is already in every bundle. cyclonedx-cli is
+marginally more faithful (106 packages at 100% purls against 108 at 99%)
+but is a 77MB self-contained .NET binary, which is a poor trade for one
+percent.

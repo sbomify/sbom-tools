@@ -1,0 +1,132 @@
+# Real projects each bundle is tested against.
+#
+# Not fixtures. Assembling a project from a few downloaded files tests a shape
+# nobody ships -- cdxgen accepts a lone packages.lock.json and rejects the same
+# file beside its .csproj, an sbt build needs all of project/, and a Go module
+# without source collapses to one component. So these are whole repositories,
+# shallow-cloned at a pinned tag.
+#
+# Two constraints learned the hard way, both about the bundled JDK:
+#
+#   RxJava pins Gradle 7.6.4 and scopt pins sbt 1.5.2. Both predate Java 21 and
+#   die against the JDK here. The projects below pin build tools that work with
+#   it, and the generators invoke the project's own wrapper (gradlew, mvnw) or
+#   honour project/build.properties, so a project picks its own version rather
+#   than being forced onto ours.
+#
+# floor_* is deliberately low: it catches "empty" and "collapsed", not small
+# changes in what upstream reports. A zero-component SBOM is not an error to
+# any of these tools, which is exactly why the floor exists.
+
+[project.maven]
+bundle = "jvm"
+repo = "spring-projects/spring-petclinic"
+ref = "main"
+lockfile = "pom.xml"
+floor_cyclonedx = 40
+floor_spdx = 40
+
+[project.maven-large]
+bundle = "jvm"
+repo = "keycloak/keycloak"
+ref = "26.4.7"
+subdir = "quarkus/runtime"
+lockfile = "pom.xml"
+# The scale test: a large multi-module reactor rather than a sample app.
+floor_cyclonedx = 200
+floor_spdx = 200
+
+[project.gradle]
+bundle = "jvm"
+repo = "square/okhttp"
+ref = "parent-5.0.0-alpha.14"
+lockfile = "build.gradle.kts"
+floor_cyclonedx = 100
+floor_spdx = 100
+
+[project.sbt]
+bundle = "jvm"
+repo = "typelevel/cats"
+ref = "v2.12.0"
+lockfile = "build.sbt"
+floor_cyclonedx = 1
+floor_spdx = 1
+
+[project.go]
+bundle = "go"
+repo = "gohugoio/hugo"
+ref = "v0.136.5"
+lockfile = "go.mod"
+floor_cyclonedx = 50
+floor_spdx = 50
+
+[project.rust]
+bundle = "rust"
+repo = "sharkdp/fd"
+ref = "v10.2.0"
+lockfile = "Cargo.lock"
+floor_cyclonedx = 20
+floor_spdx = 20
+
+[project.dotnet]
+bundle = "dotnet"
+repo = "HangfireIO/Hangfire"
+ref = "v1.8.15"
+# A project's own lock file, not the repository-level one in .nuget/.
+# Hangfire keeps one per project, which is the normal .NET layout;
+# .nuget/ describes that directory and nothing else.
+lockfile = "samples/NetCoreSample/packages.lock.json"
+cdxgen_type = "dotnet"
+# .NET keeps project files at depth -- Hangfire's lock file is in .nuget/ --
+# so scanning only the root returns an empty document and exit code 0, which
+# is the silent success this harness exists to catch.
+recurse = true
+floor_cyclonedx = 1
+floor_spdx = 1
+
+[project.javascript]
+bundle = "cdxgen"
+repo = "axios/axios"
+ref = "v1.7.7"
+lockfile = "package-lock.json"
+cdxgen_type = "javascript"
+floor_cyclonedx = 5
+floor_spdx = 5
+
+[project.ruby]
+bundle = "cdxgen"
+repo = "rails/rails"
+ref = "v7.2.2"
+lockfile = "Gemfile.lock"
+cdxgen_type = "ruby"
+floor_cyclonedx = 20
+floor_spdx = 20
+
+[project.php]
+bundle = "cdxgen"
+repo = "symfony/demo"
+ref = "main"
+lockfile = "composer.lock"
+cdxgen_type = "php"
+floor_cyclonedx = 20
+floor_spdx = 20
+
+[project.elixir]
+bundle = "cdxgen"
+repo = "phoenixframework/phoenix"
+ref = "v1.7.14"
+lockfile = "mix.lock"
+# Passed to cdxgen as -t. Left to auto-detect it fails outright on a whole
+# repository: elixir and dotnet both exit 1 without it and 0 with it.
+cdxgen_type = "elixir"
+floor_cyclonedx = 10
+floor_spdx = 10
+
+[project.dart]
+bundle = "cdxgen"
+repo = "flutter/gallery"
+ref = "main"
+lockfile = "pubspec.lock"
+cdxgen_type = "dart"
+floor_cyclonedx = 20
+floor_spdx = 20

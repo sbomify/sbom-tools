@@ -1,0 +1,67 @@
+---
+# Test the bundles against real projects, in both formats.
+#
+# build.yml proves a bundle assembles and attests. It cannot prove the tools
+# inside it produce an SBOM of a real project, and every defect worth finding
+# so far has been of the second kind: the .NET SDK sitting at the payload root
+# so nothing reached PATH; sbt 2.x whose launcher dies before a build loads; a
+# Gradle plugin class spelled CyclonedxPlugin rather than CycloneDxPlugin.
+# Each assembled, verified and published perfectly well.
+#
+# Runs after build.yml so it exercises what was just published, and on a
+# schedule so upstream drift in the projects themselves surfaces here rather
+# than in someone's pipeline.
+name: Integration
+
+on:
+  workflow_run:
+    workflows: [Build]
+    types: [completed]
+  schedule:
+    # Weekly. The projects are pinned to tags, so this catches rot in the
+    # tools and registries rather than in the projects.
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+    inputs:
+      bundle:
+        description: "Only test this bundle"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    name: ${{ matrix.bundle }}
+    # A bundle can take a while: Keycloak is a large reactor and Gradle
+    # resolves from the network.
+    timeout-minutes: 90
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        bundle: [jvm, go, rust, dotnet, cdxgen]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: "3.13"
+
+      # Cloned projects and unpacked bundles, keyed on the manifests that
+      # decide them. Keycloak alone is a 90MB clone.
+      - name: Cache projects and bundles
+        uses: actions/cache@1bd1e32a3bdc45362d1e726936510720a7c30a57 # v4.2.0
+        with:
+          path: ~/.cache/sbom-tools-it
+          key: it-${{ matrix.bundle }}-${{ hashFiles('tests/projects.toml', 'bundles.toml') }}
+          restore-keys: it-${{ matrix.bundle }}-
+
+      - name: Run
+        if: github.event.inputs.bundle == '' || github.event.inputs.bundle == matrix.bundle
+        run: python tests/integration.py --bundle ${{ matrix.bundle }}
+
+      - name: Report
+        if: always()
+        run: |
+          echo "bundle ${{ matrix.bundle }} - ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"

@@ -24,3 +24,22 @@ updates:
       interval: "weekly"
     commit-message:
       prefix: "chore"
+
+  # cdxgen, pinned in package.json/bun.lock. The bundle ships upstream's
+  # prebuilt binary rather than anything built from this, but the version has
+  # to live somewhere a bot can raise a PR against.
+  - package-ecosystem: "bun"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore"
+
+  # The .NET SDK, pinned in global.json.
+  - package-ecosystem: "dotnet-sdk"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore"
+

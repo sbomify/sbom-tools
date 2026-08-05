@@ -24,6 +24,8 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
+import re
 import shutil
 import subprocess
 import sys
@@ -36,6 +38,68 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 CHUNK = 1 << 20
+
+
+def _version_from_go_toolchain(path: Path) -> str:
+    """The toolchain directive in go.mod, not the go one.
+
+    `go` is the minimum the module graph builds with; `toolchain` is what we
+    actually build and ship.
+    """
+    text = path.read_text()
+    for pattern in (r"^toolchain\s+go(\S+)", r"^go\s+(\S+)"):
+        if match := re.search(pattern, text, re.M):
+            return match.group(1)
+    die(f"{path} has neither a toolchain nor a go directive")
+    raise AssertionError  # unreachable; die exits
+
+
+def _version_from_bun_lock(path: Path, package: str) -> str:
+    """A package's resolved version in bun.lock.
+
+    Matched rather than parsed: bun.lock is JSONC, which json rejects.
+    """
+    pattern = re.compile(rf'"{re.escape(package)}":\s*\[\s*"{re.escape(package)}@([^"]+)"')
+    match = pattern.search(path.read_text())
+    if not match:
+        die(f"{package} not found in {path}")
+    version = match.group(1)  # type: ignore[union-attr]
+    if not re.fullmatch(r"\d[\w.+-]*", version):
+        die(f"{package} in {path} resolves to {version!r}, which is not a released version")
+    return version
+
+
+def _version_from_global_json(path: Path) -> str:
+    """The SDK version in global.json."""
+    return str(json.loads(path.read_text())["sdk"]["version"])
+
+
+#: Where a component's version comes from, when it comes from a manifest a bot
+#: maintains rather than a literal here.
+VERSION_READERS = {
+    "go.mod": lambda p, _s: _version_from_go_toolchain(p),
+    "bun.lock": lambda p, s: _version_from_bun_lock(p, str(s["package"])),
+    "global.json": lambda p, _s: _version_from_global_json(p),
+}
+
+
+def resolve_version(spec: dict) -> str:
+    """A component's version, from its manifest where one owns it.
+
+    Restating a version here would put it out of Dependabot's reach, which is
+    how a pin goes stale without anything failing: a tool that is still
+    downloadable never complains about being old.
+    """
+    source = spec.get("version_from")
+    if not source:
+        return str(spec["version"])
+    path = ROOT / str(source["file"])
+    if not path.exists():
+        die(f"{source['file']} not found (looked in {path})")
+    reader = VERSION_READERS.get(path.name)
+    if reader is None:
+        die(f"no version reader for {path.name}")
+    return reader(path, source)  # type: ignore[misc]
 
 
 def die(message: str) -> None:
@@ -112,7 +176,10 @@ def add_upstream(name: str, spec: dict, arch: str, prefix: Path, scratch: Path) 
     if not algorithm:
         die(f"{name}/{arch}: needs a sha256 or sha512")
 
-    url = per_arch["url"]
+    # {version} in a URL follows the manifest the version came from, so a
+    # Dependabot bump reaches the download instead of leaving it pointing at
+    # the old release with a digest that no longer matches.
+    url = str(per_arch["url"]).replace("{version}", resolve_version(spec))
     if spec.get("kind") == "raw":
         # A bare executable, e.g. cdxgen's single-file build.
         target = prefix / "bin" / spec.get("bin_name", name)

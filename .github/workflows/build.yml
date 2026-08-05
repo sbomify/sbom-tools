@@ -57,6 +57,20 @@ jobs:
               --prerelease --latest=false --target "$GITHUB_SHA"
           fi
 
+  # A version bump changes the URL through its template but not the digest
+  # beside it, and a stale digest stops the build. Catching it here says which
+  # pin needs refreshing; catching it during assembly says only that a
+  # download was refused.
+  pins:
+    name: Verify the pinned digests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: "3.13"
+      - run: python scripts/check_digests.py
+
   build-go:
     name: ${{ matrix.tool }} (${{ matrix.goarch }})
     runs-on: ${{ matrix.runner }}

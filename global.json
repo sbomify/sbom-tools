@@ -1,0 +1,6 @@
+{
+  "//": "Pins the .NET SDK where Dependabot's dotnet-sdk updater can see it. Nothing is built from this; the bundle ships Microsoft's tarball, and this file exists so the version is visible to a bot rather than being a literal in bundles.toml.",
+  "sdk": {
+    "version": "10.0.302"
+  }
+}

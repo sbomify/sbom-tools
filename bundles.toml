@@ -24,13 +24,15 @@ built = ["cyclonedx-gomod", "syft"]
 env = { GOMODCACHE = "{prefix}/.gomodcache", GOCACHE = "{prefix}/.gocache", GOPATH = "{prefix}/.gopath" }
 
   [bundle.go.upstream.go]
-  version = "1.26.5"
+  # From the toolchain directive in go.mod, which Dependabot's gomod updater
+  # already maintains for the tools built here.
+  version_from = { file = "go.mod" }
   strip_container = true
   [bundle.go.upstream.go.amd64]
-  url = "https://go.dev/dl/go1.26.5.linux-amd64.tar.gz"
+  url = "https://go.dev/dl/go{version}.linux-amd64.tar.gz"
   sha256 = "5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053"
   [bundle.go.upstream.go.arm64]
-  url = "https://go.dev/dl/go1.26.5.linux-arm64.tar.gz"
+  url = "https://go.dev/dl/go{version}.linux-arm64.tar.gz"
   sha256 = "fe4789e92b1f33358680864bbe8704289e7bb5fc207d80623c308935bd696d49"
 
 [bundle.rust]
@@ -98,14 +100,15 @@ built = ["syft"]
 # theirs; a worse copy of an artifact they already test helps nobody.
 
   [bundle.cdxgen.upstream.cdxgen]
-  version = "12.8.2"
+  # From bun.lock, so Dependabot's bun updater can raise the bump.
+  version_from = { file = "bun.lock", package = "@cyclonedx/cdxgen" }
   kind = "raw"
   bin_name = "cdxgen"
   [bundle.cdxgen.upstream.cdxgen.amd64]
-  url = "https://github.com/CycloneDX/cdxgen/releases/download/v12.8.2/cdxgen-linux-amd64-slim"
+  url = "https://github.com/CycloneDX/cdxgen/releases/download/v{version}/cdxgen-linux-amd64-slim"
   sha256 = "4b49a3cc09e4f5f8815058edf0a6d2feecc843f3eecf7649b75c86e21383b381"
   [bundle.cdxgen.upstream.cdxgen.arm64]
-  url = "https://github.com/CycloneDX/cdxgen/releases/download/v12.8.2/cdxgen-linux-arm64-slim"
+  url = "https://github.com/CycloneDX/cdxgen/releases/download/v{version}/cdxgen-linux-arm64-slim"
   sha256 = "d9bac95eaceef2a0eddf16b6a22e0ef1549ad827d488f44cb65be759f42aecd2"
 
 [bundle.jvm]
@@ -124,14 +127,14 @@ env = { JAVA_HOME = "{prefix}/jdk", MAVEN_ARGS = "-Dmaven.repo.local={prefix}/re
 # separate bundles would ship 190MB of JDK three times.
 
   [bundle.jvm.upstream.cdxgen]
-  version = "12.8.2"
+  version_from = { file = "bun.lock", package = "@cyclonedx/cdxgen" }
   kind = "raw"
   bin_name = "cdxgen"
   [bundle.jvm.upstream.cdxgen.amd64]
-  url = "https://github.com/CycloneDX/cdxgen/releases/download/v12.8.2/cdxgen-linux-amd64-slim"
+  url = "https://github.com/CycloneDX/cdxgen/releases/download/v{version}/cdxgen-linux-amd64-slim"
   sha256 = "4b49a3cc09e4f5f8815058edf0a6d2feecc843f3eecf7649b75c86e21383b381"
   [bundle.jvm.upstream.cdxgen.arm64]
-  url = "https://github.com/CycloneDX/cdxgen/releases/download/v12.8.2/cdxgen-linux-arm64-slim"
+  url = "https://github.com/CycloneDX/cdxgen/releases/download/v{version}/cdxgen-linux-arm64-slim"
   sha256 = "d9bac95eaceef2a0eddf16b6a22e0ef1549ad827d488f44cb65be759f42aecd2"
 
   [bundle.jvm.upstream.jdk]
@@ -198,25 +201,26 @@ env = { DOTNET_CLI_HOME = "{prefix}/.dotnet", NUGET_PACKAGES = "{prefix}/.nuget"
 # measured, not assumed.
 
   [bundle.dotnet.upstream.cdxgen]
-  version = "12.8.2"
+  version_from = { file = "bun.lock", package = "@cyclonedx/cdxgen" }
   kind = "raw"
   bin_name = "cdxgen"
   [bundle.dotnet.upstream.cdxgen.amd64]
-  url = "https://github.com/CycloneDX/cdxgen/releases/download/v12.8.2/cdxgen-linux-amd64-slim"
+  url = "https://github.com/CycloneDX/cdxgen/releases/download/v{version}/cdxgen-linux-amd64-slim"
   sha256 = "4b49a3cc09e4f5f8815058edf0a6d2feecc843f3eecf7649b75c86e21383b381"
   [bundle.dotnet.upstream.cdxgen.arm64]
-  url = "https://github.com/CycloneDX/cdxgen/releases/download/v12.8.2/cdxgen-linux-arm64-slim"
+  url = "https://github.com/CycloneDX/cdxgen/releases/download/v{version}/cdxgen-linux-arm64-slim"
   sha256 = "d9bac95eaceef2a0eddf16b6a22e0ef1549ad827d488f44cb65be759f42aecd2"
 
   [bundle.dotnet.upstream.dotnet]
-  version = "10.0.302"
+  # From global.json, which Dependabot's dotnet-sdk updater maintains.
+  version_from = { file = "global.json" }
   into = "dotnet"
   # The SDK ships its entry point as <root>/dotnet, not <root>/bin/dotnet, so
   # the payload directory is itself the bin directory.
   bin_dir = "dotnet"
   [bundle.dotnet.upstream.dotnet.amd64]
-  url = "https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.302/dotnet-sdk-10.0.302-linux-x64.tar.gz"
+  url = "https://builds.dotnet.microsoft.com/dotnet/Sdk/{version}/dotnet-sdk-{version}-linux-x64.tar.gz"
   sha512 = "10069bec8783596484a610332f090d562802a41b9b40e3327a5a5688b572e10c296ae300f940d40461f23c157ed1b0843c2f8e6b3f20d8d8d9d83432d8143bac"
   [bundle.dotnet.upstream.dotnet.arm64]
-  url = "https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.302/dotnet-sdk-10.0.302-linux-arm64.tar.gz"
+  url = "https://builds.dotnet.microsoft.com/dotnet/Sdk/{version}/dotnet-sdk-{version}-linux-arm64.tar.gz"
   sha512 = "9e409c14e00686d661c78fa4dd9ad0e4dcf695c328bd5ff777d05b4a9c34b42cf89b12573b92e9fb2f565dbe12016b4835f77c7d9a42b55a7494df21634cd5d6"

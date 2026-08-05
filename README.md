@@ -49,6 +49,30 @@ Every archive carries a `bundle.toml` describing what it provides, which
 directories hold executables, and what environment to set, so a consumer
 unpacks it and reads what to do rather than being taught each layout.
 
+## Where the versions live
+
+Nothing here restates a version that a package manager already owns, because
+a literal is a pin no bot can see — and a stale pin never fails, since a tool
+that is still downloadable never complains about being old.
+
+| pinned in | maintained by | covers |
+| --- | --- | --- |
+| `go.mod` | Dependabot `gomod` | syft, cosign, crane, cyclonedx-gomod, the Go toolchain |
+| `Cargo.lock` | Dependabot `cargo` | cargo-cyclonedx |
+| `bun.lock` | Dependabot `bun` | cdxgen |
+| `global.json` | Dependabot `dotnet-sdk` | the .NET SDK |
+| `bundles.toml` | `scripts/check_tool_versions.py` | the JDK, Maven, Gradle, sbt, Rust |
+
+The last row is the residue: no Dependabot ecosystem covers a JDK, a Maven or
+Gradle distribution, an sbt launcher or a Rust toolchain, so those stay
+literal and are watched by a script instead.
+
+URLs for the manifest-driven pins are templated on `{version}`, so a bump
+reaches the download. The digest beside it does **not** follow, which is why
+`scripts/check_digests.py` runs in CI — it downloads every pinned asset and
+says exactly which digest needs refreshing, rather than letting a release
+discover it. `--update` rewrites them.
+
 ## Releases
 
 | trigger | published to |

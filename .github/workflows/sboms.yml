@@ -13,13 +13,15 @@
 # fetching the jvm bundle gets ~466MB of toolchain; describing only the four Go
 # modules we compiled would answer a question nobody asked.
 #
-# Bundles are described by pointing the action at the unpacked directory. It
-# could not do that until recently -- its inputs were a lock file, an SBOM or a
-# container image -- which meant describing our own bundles reached past the
-# action to raw syft. Shipping artifacts our own tool cannot describe is a poor
-# advertisement for it, so the action learned to scan a directory instead.
+# Bundles are scanned with the syft inside them and uploaded as a finished
+# document. Pointing the action at the unpacked directory is better -- it adds
+# enrichment and augmentation -- and sbomify-action grew a directory input for
+# exactly that, but the released image has not got it yet: every bundle job
+# failed with "Specified input file 'unpacked' not found" because the running
+# image still requires a file. Switch SBOM_FILE back to LOCK_FILE: unpacked
+# once an image carrying that change is published.
 #
-# Underneath it is still syft, which reads Go build info out of compiled
+# Underneath it is syft either way, which reads Go build info out of compiled
 # binaries, so the module graphs of the tools we built come along without their
 # lock files being read a second time.
 #
@@ -94,6 +96,20 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
+      # workflow_run always runs the workflow from the default branch but
+      # checks out the commit that was built, so the first run after adding a
+      # manifest looks for a file that commit does not have. Skip rather than
+      # fail: the next build has it, and a row that cannot describe anything
+      # should not be reported as a broken upload.
+      - id: present
+        run: |
+          if [ -e "${{ matrix.lockfile }}" ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::${{ matrix.lockfile }} is not in this commit yet; skipping"
+          fi
+
       - id: cfg
         env:
           HEAD_BRANCH: ${{ github.event.workflow_run.head_branch || github.ref_name }}
@@ -116,6 +132,7 @@ jobs:
           fi
 
       - uses: sbomify/sbomify-action@master
+        if: steps.present.outputs.found == 'true'
         env:
           API_BASE_URL: ${{ steps.cfg.outputs.api_base_url }}
           OIDC_AUDIENCE: ${{ steps.cfg.outputs.oidc_audience }}
@@ -183,7 +200,7 @@ jobs:
       # amd64 only. The two architectures hold the same tools at the same
       # versions and differ in machine code, which an SBOM does not describe --
       # two documents would differ only in their file hashes.
-      - name: Unpack the published bundle
+      - name: Unpack the published bundle and describe it with its own syft
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -191,8 +208,12 @@ jobs:
           ASSET="${{ matrix.bundle }}-linux-amd64.tar.gz"
           gh release download "${{ steps.cfg.outputs.release }}" --repo "$GITHUB_REPOSITORY" \
             --pattern "$ASSET" --dir . --clobber
-          mkdir -p unpacked
-          tar xzf "$ASSET" -C unpacked
+          PREFIX="$PWD/unpacked"
+          mkdir -p "$PREFIX"
+          tar xzf "$ASSET" -C "$PREFIX"
+          "$PREFIX/bin/syft" scan "dir:$PREFIX" \
+            -o "cyclonedx-json=$PWD/bundle-${{ matrix.bundle }}.cdx.json" \
+            --source-name "sbom-tools-${{ matrix.bundle }}"
 
       - uses: sbomify/sbomify-action@master
         env:
@@ -201,8 +222,7 @@ jobs:
           COMPONENT_ID: ${{ steps.cfg.outputs.is_prod == 'true' && matrix.prod_id || matrix.staging_id }}
           COMPONENT_NAME: sbom-tools - ${{ matrix.bundle }} bundle
           COMPONENT_VERSION: ${{ steps.cfg.outputs.version }}
-          LOCK_FILE: unpacked
-          OUTPUT_FILE: bundle-${{ matrix.bundle }}.cdx.json
+          SBOM_FILE: bundle-${{ matrix.bundle }}.cdx.json
           UPLOAD: 'true'
           AUGMENT: 'true'
           ENRICH: 'true'

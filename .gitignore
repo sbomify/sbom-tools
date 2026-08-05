@@ -1,3 +1,12 @@
 /dist/
 /out/
 /target/
+
+# Compiled bytecode. Two .pyc files were committed and then kept turning up in
+# unrelated diffs as their bytes changed -- a build artefact of whoever last
+# ran the scripts, reviewed as though it were source.
+__pycache__/
+*.py[cod]
+
+# Local caches from running the integration suite outside CI.
+/.cache/

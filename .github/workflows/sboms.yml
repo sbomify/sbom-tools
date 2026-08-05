@@ -71,19 +71,19 @@ jobs:
           - name: javascript
             component_name: sbom-tools - JavaScript Stack
             staging_id: yZ16icN0OIMN
-            prod_id: ""
+            prod_id: WapGqhUUErEZ
             lockfile: bun.lock
           # The CycloneDX build plugins. Not compiled here -- Maven, Gradle and
           # sbt fetch them at run time -- but pinned here, so described here.
           - name: maven-plugins
             component_name: sbom-tools - Maven Plugins
             staging_id: OaGapU0irAlf
-            prod_id: ""
+            prod_id: aVlfJRUyWiai
             lockfile: tools/pom.xml
           - name: gradle-plugins
             component_name: sbom-tools - Gradle Plugins
             staging_id: TRQPSbnQHGqG
-            prod_id: ""
+            prod_id: UzaHvvvYRSUc
             lockfile: tools/build.gradle
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -111,11 +111,7 @@ jobs:
             } >> "$GITHUB_OUTPUT"
           fi
 
-      # Skipped rather than failed where production has no component yet: the
-      # alternative is a permanently red release run. Dropping the guard is
-      # what to do once production carries all of them.
       - uses: sbomify/sbomify-action@master
-        if: steps.cfg.outputs.is_prod == 'false' || matrix.prod_id != ''
         env:
           API_BASE_URL: ${{ steps.cfg.outputs.api_base_url }}
           OIDC_AUDIENCE: ${{ steps.cfg.outputs.oidc_audience }}
@@ -147,13 +143,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {bundle: go, staging_id: F7TPEUB0vmhr}
-          - {bundle: rust, staging_id: eHOagG2h7bp4}
-          - {bundle: syft, staging_id: XuUbFaWyXnmJ}
-          - {bundle: sigstore, staging_id: l7qIZjVDNF4J}
-          - {bundle: cdxgen, staging_id: WMs0DX7QKg83}
-          - {bundle: jvm, staging_id: mOTJsOzjZPi4}
-          - {bundle: dotnet, staging_id: awnaRBPzntLv}
+          - {bundle: go, prod_id: f2EIcOesNBBZ, staging_id: F7TPEUB0vmhr}
+          - {bundle: rust, prod_id: LYBjrvuwGdyC, staging_id: eHOagG2h7bp4}
+          - {bundle: syft, prod_id: Ro74uVXBfQSW, staging_id: XuUbFaWyXnmJ}
+          - {bundle: sigstore, prod_id: qVe2lfAnW5h2, staging_id: l7qIZjVDNF4J}
+          - {bundle: cdxgen, prod_id: eRNnEiShDEaa, staging_id: WMs0DX7QKg83}
+          - {bundle: jvm, prod_id: hpeisMIpRHU7, staging_id: mOTJsOzjZPi4}
+          - {bundle: dotnet, prod_id: WRDnZcyYlXLB, staging_id: awnaRBPzntLv}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -167,12 +163,16 @@ jobs:
               echo "is_prod=true"
               echo "release=${HEAD_BRANCH}"
               echo "version=${HEAD_BRANCH}"
+              echo "api_base_url=https://app.sbomify.com"
+              echo "oidc_audience=sbomify.com"
             } >> "$GITHUB_OUTPUT"
           else
             {
               echo "is_prod=false"
               echo "release=tools-rolling"
               echo "version=${HEAD_SHA:0:7}"
+              echo "api_base_url=https://stage.sbomify.com"
+              echo "oidc_audience=stage.sbomify.com"
             } >> "$GITHUB_OUTPUT"
           fi
 
@@ -206,11 +206,10 @@ jobs:
           EOF
 
       - uses: sbomify/sbomify-action@master
-        if: steps.cfg.outputs.is_prod == 'false'
         env:
-          API_BASE_URL: https://stage.sbomify.com
-          OIDC_AUDIENCE: stage.sbomify.com
-          COMPONENT_ID: ${{ matrix.staging_id }}
+          API_BASE_URL: ${{ steps.cfg.outputs.api_base_url }}
+          OIDC_AUDIENCE: ${{ steps.cfg.outputs.oidc_audience }}
+          COMPONENT_ID: ${{ steps.cfg.outputs.is_prod == 'true' && matrix.prod_id || matrix.staging_id }}
           COMPONENT_NAME: sbom-tools - ${{ matrix.bundle }} bundle
           COMPONENT_VERSION: ${{ steps.cfg.outputs.version }}
           SBOM_FILE: bundle-${{ matrix.bundle }}.cdx.json

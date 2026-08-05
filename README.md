@@ -32,15 +32,59 @@ Consumers fetch one archive per ecosystem. Each holds the tools built here
 plus the toolchain they shell out to, unpacks anywhere writable, and runs
 without root.
 
-| bundle | contents | measured |
+| bundle | contents | size |
 | --- | --- | ---: |
-| `go` | cyclonedx-gomod + Go toolchain | 72.7 MB |
-| `rust` | cargo-cyclonedx + cargo, rustc | |
-| `jvm` | cdxgen + JDK, Maven, Gradle, sbt | 430.4 MB |
-| `dotnet` | cdxgen + .NET SDK | |
-| `cdxgen` | cdxgen alone | 33.9 MB |
-| `syft` | syft | 27.1 MB |
-| `sigstore` | cosign, crane | |
+| `go` | cyclonedx-gomod + Go toolchain | 99.9 MiB |
+| `rust` | cargo-cyclonedx + cargo, rustc | 176.1 MiB |
+| `jvm` | cdxgen + JDK, Maven, Gradle, sbt | 466.7 MiB |
+| `dotnet` | cdxgen + .NET SDK | 269.8 MiB |
+| `cdxgen` | cdxgen alone | 70.3 MiB |
+| `syft` | syft | 27.1 MiB |
+| `sigstore` | cosign, crane | 32.9 MiB |
+
+Sizes are the amd64 archive. arm64 is smaller in every case, by 3% for
+`jvm` and 20% for `rust`.
+
+### Which bundle an ecosystem needs
+
+Mirrors [Supported Lockfiles](https://github.com/sbomify/sbomify-action/#supported-lockfiles)
+in sbomify-action, which is the list this repository exists to serve. Read it
+the other way round from the table above: a consumer knows what it has
+checked out, not which tool it wants.
+
+| Language | Files | bundle |
+| --- | --- | --- |
+| Python | `requirements.txt`, `poetry.lock`, `Pipfile.lock`, `uv.lock`, `pyproject.toml` | none -- cyclonedx-py is pure Python and ships in the image |
+| JavaScript | `package.json`, `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `bun.lock` | `cdxgen` |
+| Java | `pom.xml`, `build.gradle`, `build.gradle.kts`, `gradle.lockfile` | `jvm` |
+| Go | `go.mod`, `go.sum` | `go` |
+| Rust | `Cargo.lock` | `rust` |
+| Ruby | `Gemfile.lock` | `cdxgen` |
+| PHP | `composer.json`, `composer.lock` | `cdxgen` |
+| .NET/C# | `packages.lock.json` | `dotnet` |
+| Swift | `Package.swift`, `Package.resolved` | `syft` |
+| Dart | `pubspec.lock` | `cdxgen` |
+| Elixir | `mix.lock` | `cdxgen` |
+| Scala | `build.sbt` | `jvm` |
+| C++ | `conan.lock` | `cdxgen` |
+| Terraform | `.terraform.lock.hcl` | `syft` |
+
+Six languages share the `cdxgen` bundle because cdxgen reads their lock files
+directly and needs none of their toolchains: a PHP or Ruby project is parsed
+without PHP or Ruby installed. The bundles that carry a toolchain do so
+because their generator shells out to it -- cyclonedx-gomod runs `go list`,
+and the Maven and Gradle plugins run inside the build.
+
+Two rows are honest gaps rather than choices. **Swift** has no maintained
+CycloneDX generator: cyclonedx-cocoapods covers CocoaPods only, and the one
+SwiftPM project died in 2021, so Swift falls to syft and produces a thinner
+SBOM than the rest. **Terraform** has no native generator either. Both work;
+neither is as good as what the other ecosystems get.
+
+`syft` also serves every ecosystem for SPDX where the native tool emits only
+CycloneDX, which is most of them -- see the format table in sbomify-action.
+`sigstore` generates nothing; it is how a consumer verifies these bundles
+before trusting them.
 
 The JVM is one bundle rather than three because all of Maven, Gradle and sbt
 need the same 190MB JDK.

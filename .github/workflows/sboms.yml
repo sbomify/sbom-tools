@@ -18,12 +18,24 @@
 # sigstore bundle ships cosign and crane and nothing else, so that job died
 # with "unpacked/bin/syft: No such file or directory". Taking the scanner from
 # a known bundle rather than the one under test also means the scanner does
-# not vary with the subject. Pointing the action at the unpacked directory is better -- it adds
-# enrichment and augmentation -- and sbomify-action grew a directory input for
-# exactly that, but the released image has not got it yet: every bundle job
-# failed with "Specified input file 'unpacked' not found" because the running
-# image still requires a file. Switch SBOM_FILE back to LOCK_FILE: unpacked
-# once an image carrying that change is published.
+# not vary with the subject.
+#
+# Pointing the action at the unpacked directory would be better -- it adds the
+# enrichment and augmentation this raw scan skips -- and sbomify-action grew a
+# SOURCE_DIR input for exactly that. It is not usable here yet, and the switch
+# has to be timed:
+#
+#   1. sbomify-action#320 merges and ghcr.io/sbomify/sbomify-action:latest
+#      republishes carrying SOURCE_DIR
+#   2. only then, replace the syft scan and SBOM_FILE below with
+#      SOURCE_DIR: unpacked
+#
+# Doing step 2 first fails every bundle job: the running image rejects an input
+# it does not know. An earlier attempt at this used LOCK_FILE for a directory
+# and failed with "Specified input file 'unpacked' not found" -- which is why
+# a directory is its own input now, rather than a lock file that happens to be
+# one. A lock file is the graph an ecosystem resolved; a directory is what is
+# on disk.
 #
 # Underneath it is syft either way, which reads Go build info out of compiled
 # binaries, so the module graphs of the tools we built come along without their

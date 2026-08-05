@@ -130,6 +130,8 @@ npm_install = true
   url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-linux-aarch64.zip"
   sha256 = "a27ffb63a8310375836e0d6f668ae17fa8d8d18b88c37c821c65331973a19a3b"
 [bundle.jvm]
+# Records the CycloneDX plugin versions in bundle.toml; see PLUGIN_PINS.
+build_plugins = true
 description = "cdxgen with the JDK, Maven, Gradle and sbt it shells out to"
 # syft is here for SPDX. The native CycloneDX tools -- cyclonedx-gomod,
 # cargo-cyclonedx, the Maven/Gradle/sbt plugins -- emit CycloneDX and

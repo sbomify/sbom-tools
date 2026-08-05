@@ -1,0 +1,223 @@
+---
+# SBOMs for everything this repository builds and ships.
+#
+# Two kinds of thing need describing, and only the first was ever covered:
+#
+#   sources   the lock files we build from -- go.mod, Cargo.lock, bun.lock,
+#             and the JVM plugin manifests
+#   bundles   the archives users actually download, which additionally carry
+#             a JDK, Maven, Gradle, sbt, the Go and Rust toolchains, the .NET
+#             SDK and bun
+#
+# The second is the larger supply chain by far and had no SBOM at all. A user
+# fetching the jvm bundle gets ~466MB of toolchain; describing only the four Go
+# modules we compiled would answer a question nobody asked.
+#
+# Bundles are described by pointing the action at the unpacked directory. It
+# could not do that until recently -- its inputs were a lock file, an SBOM or a
+# container image -- which meant describing our own bundles reached past the
+# action to raw syft. Shipping artifacts our own tool cannot describe is a poor
+# advertisement for it, so the action learned to scan a directory instead.
+#
+# Underneath it is still syft, which reads Go build info out of compiled
+# binaries, so the module graphs of the tools we built come along without their
+# lock files being read a second time.
+#
+# Two environments, chosen from the triggering ref, matching sbomify-action:
+#   * staging     -- every push to master -> stage.sbomify.com
+#   * production  -- a published release  -> app.sbomify.com
+name: sboms
+
+on:
+  workflow_run:
+    workflows: [Build]
+    types: [completed]
+  workflow_dispatch:
+
+concurrency:
+  group: sboms-${{ github.event.workflow_run.head_branch || github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------
+  # What we build from.
+  # ---------------------------------------------------------------------
+  sources:
+    name: source ${{ matrix.name }}
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # required to mint the GitHub OIDC JWT
+      contents: read
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: go
+            component_name: sbom-tools - Go Stack
+            staging_id: RTJwLK2FfnCf
+            prod_id: Z3h0vxP1WMTs
+            lockfile: go.mod
+          - name: rust
+            component_name: sbom-tools - Rust Stack
+            staging_id: Cc1VJdfrm72W
+            prod_id: lTIkL5r8HjYt
+            lockfile: Cargo.lock
+          # cdxgen and its 197 transitive packages. Pinned here since the
+          # bundle stopped shipping upstream's prebuilt binary, and until now
+          # nothing described them.
+          - name: javascript
+            component_name: sbom-tools - JavaScript Stack
+            staging_id: yZ16icN0OIMN
+            prod_id: WapGqhUUErEZ
+            lockfile: bun.lock
+          # The CycloneDX build plugins. Not compiled here -- Maven, Gradle and
+          # sbt fetch them at run time -- but pinned here, so described here.
+          - name: maven-plugins
+            component_name: sbom-tools - Maven Plugins
+            staging_id: OaGapU0irAlf
+            prod_id: aVlfJRUyWiai
+            lockfile: tools/pom.xml
+          - name: gradle-plugins
+            component_name: sbom-tools - Gradle Plugins
+            staging_id: TRQPSbnQHGqG
+            prod_id: UzaHvvvYRSUc
+            lockfile: tools/build.gradle
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - id: cfg
+        env:
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch || github.ref_name }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          if [[ "$HEAD_BRANCH" == v* ]]; then
+            {
+              echo "is_prod=true"
+              echo "version=${HEAD_BRANCH}"
+              echo "api_base_url=https://app.sbomify.com"
+              echo "oidc_audience=sbomify.com"
+            } >> "$GITHUB_OUTPUT"
+          else
+            {
+              echo "is_prod=false"
+              echo "version=${HEAD_SHA:0:7}"
+              echo "api_base_url=https://stage.sbomify.com"
+              echo "oidc_audience=stage.sbomify.com"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: sbomify/sbomify-action@master
+        env:
+          API_BASE_URL: ${{ steps.cfg.outputs.api_base_url }}
+          OIDC_AUDIENCE: ${{ steps.cfg.outputs.oidc_audience }}
+          COMPONENT_ID: ${{ steps.cfg.outputs.is_prod == 'true' && matrix.prod_id || matrix.staging_id }}
+          COMPONENT_NAME: ${{ matrix.component_name }}
+          COMPONENT_VERSION: ${{ steps.cfg.outputs.version }}
+          LOCK_FILE: ${{ matrix.lockfile }}
+          SBOM_FORMAT: cyclonedx
+          UPLOAD: 'true'
+          AUGMENT: 'true'
+          ENRICH: 'true'
+          OUTPUT_FILE: sbom-tools-${{ matrix.name }}.cdx.json
+          SBOMIFY_CACHE_DIR: ${{ github.workspace }}/.sbomify-cache
+
+  # ---------------------------------------------------------------------
+  # What we ship. Scanned as assembled, by the syft inside each bundle.
+  # ---------------------------------------------------------------------
+  bundles:
+    name: bundle ${{ matrix.bundle }}
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {bundle: go, prod_id: f2EIcOesNBBZ, staging_id: F7TPEUB0vmhr}
+          - {bundle: rust, prod_id: LYBjrvuwGdyC, staging_id: eHOagG2h7bp4}
+          - {bundle: syft, prod_id: Ro74uVXBfQSW, staging_id: XuUbFaWyXnmJ}
+          - {bundle: sigstore, prod_id: qVe2lfAnW5h2, staging_id: l7qIZjVDNF4J}
+          - {bundle: cdxgen, prod_id: eRNnEiShDEaa, staging_id: WMs0DX7QKg83}
+          - {bundle: jvm, prod_id: hpeisMIpRHU7, staging_id: mOTJsOzjZPi4}
+          - {bundle: dotnet, prod_id: WRDnZcyYlXLB, staging_id: awnaRBPzntLv}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - id: cfg
+        env:
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch || github.ref_name }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          if [[ "$HEAD_BRANCH" == v* ]]; then
+            {
+              echo "is_prod=true"
+              echo "release=${HEAD_BRANCH}"
+              echo "version=${HEAD_BRANCH}"
+              echo "api_base_url=https://app.sbomify.com"
+              echo "oidc_audience=sbomify.com"
+            } >> "$GITHUB_OUTPUT"
+          else
+            {
+              echo "is_prod=false"
+              echo "release=tools-rolling"
+              echo "version=${HEAD_SHA:0:7}"
+              echo "api_base_url=https://stage.sbomify.com"
+              echo "oidc_audience=stage.sbomify.com"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      # amd64 only. The two architectures hold the same tools at the same
+      # versions and differ in machine code, which an SBOM does not describe --
+      # two documents would differ only in their file hashes.
+      - name: Unpack the published bundle
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          ASSET="${{ matrix.bundle }}-linux-amd64.tar.gz"
+          gh release download "${{ steps.cfg.outputs.release }}" --repo "$GITHUB_REPOSITORY" \
+            --pattern "$ASSET" --dir . --clobber
+          mkdir -p unpacked
+          tar xzf "$ASSET" -C unpacked
+
+      - uses: sbomify/sbomify-action@master
+        env:
+          API_BASE_URL: ${{ steps.cfg.outputs.api_base_url }}
+          OIDC_AUDIENCE: ${{ steps.cfg.outputs.oidc_audience }}
+          COMPONENT_ID: ${{ steps.cfg.outputs.is_prod == 'true' && matrix.prod_id || matrix.staging_id }}
+          COMPONENT_NAME: sbom-tools - ${{ matrix.bundle }} bundle
+          COMPONENT_VERSION: ${{ steps.cfg.outputs.version }}
+          LOCK_FILE: unpacked
+          OUTPUT_FILE: bundle-${{ matrix.bundle }}.cdx.json
+          UPLOAD: 'true'
+          AUGMENT: 'true'
+          ENRICH: 'true'
+          SBOMIFY_CACHE_DIR: ${{ github.workspace }}/.sbomify-cache
+
+      # An empty document uploads cleanly and describes nothing, which is the
+      # failure this workflow exists to prevent.
+      - name: Refuse an empty bundle SBOM
+        run: |
+          python3 - <<'EOF'
+          import json
+          import sys
+
+          document = json.load(open("bundle-${{ matrix.bundle }}.cdx.json"))
+          count = len(document.get("components") or [])
+          print(f"::notice::${{ matrix.bundle }} bundle: {count} components")
+          sys.exit(0 if count else "the bundle SBOM is empty")
+          EOF

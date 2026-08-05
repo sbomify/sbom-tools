@@ -43,3 +43,26 @@ updates:
     commit-message:
       prefix: "chore"
 
+  # The CycloneDX build plugins. Nothing here is compiled -- Maven, Gradle and
+  # sbt fetch these themselves at run time, driven by sbomify-action through an
+  # init script so a user's build files are never edited. The manifests exist
+  # so the versions are watched by a bot rather than sitting as literals.
+  #
+  # They live here rather than in the action because this repository owns what
+  # the JVM bundle can do, and the versions ship inside that bundle.
+  - package-ecosystem: "maven"
+    directory: "/tools"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore"
+
+  # Separate from maven because the Gradle plugin is published to the Gradle
+  # Plugin Portal, not Maven Central, which carries only stale versions of it.
+  - package-ecosystem: "gradle"
+    directory: "/tools"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore"
+

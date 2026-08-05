@@ -267,7 +267,12 @@ jobs:
     name: bundle ${{ matrix.bundle }} (${{ matrix.arch }})
     needs: [prepare-rolling, build-go, build-rust]
     if: always() && needs.build-go.result == 'success' && needs.build-rust.result == 'success'
-    runs-on: ubuntu-latest
+    # Assembled on the architecture being assembled for. Building arm64 on an
+    # amd64 runner meant the pinned bun in the prefix could not be executed, so
+    # the cdxgen install had to borrow a second, unpinned bun from the host --
+    # and it left the "runs unpacked" check skipped for every arm64 bundle,
+    # which is half of what we publish.
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: write
       id-token: write # OIDC identity for keyless attestation
@@ -277,6 +282,9 @@ jobs:
       matrix:
         bundle: [go, rust, jvm, dotnet, cdxgen, syft, sigstore]
         arch: [amd64, arm64]
+        include:
+          - { arch: amd64, runner: ubuntu-latest }
+          - { arch: arm64, runner: ubuntu-24.04-arm }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -294,17 +302,14 @@ jobs:
           PREFIX=$(mktemp -d)
           tar xzf "out/${{ matrix.bundle }}-linux-${{ matrix.arch }}.tar.gz" -C "$PREFIX"
           test -f "$PREFIX/bundle.toml"
-          # arm64 binaries cannot run on an amd64 runner; the layout check
-          # above still applies to both.
-          if [ "${{ matrix.arch }}" = "amd64" ]; then
-            # HOME=/ is unwritable, which is the case that broke the old
-            # design: every tool must keep its caches inside the prefix.
-            for bin in "$PREFIX"/bin/*; do
-              env -i HOME=/ PATH="$PREFIX/bin:/usr/bin:/bin" "$bin" --version >/dev/null 2>&1 \
-                || env -i HOME=/ PATH="$PREFIX/bin:/usr/bin:/bin" "$bin" version >/dev/null 2>&1 \
-                || echo "note: $(basename "$bin") has no version flag"
-            done
-          fi
+          # Both architectures now, because the runner matches the arch being
+          # built. HOME=/ is unwritable, which is the case that broke the old
+          # design: every tool must keep its caches inside the prefix.
+          for bin in "$PREFIX"/bin/*; do
+            env -i HOME=/ PATH="$PREFIX/bin:/usr/bin:/bin" "$bin" --version >/dev/null 2>&1 \
+              || env -i HOME=/ PATH="$PREFIX/bin:/usr/bin:/bin" "$bin" version >/dev/null 2>&1 \
+              || echo "note: $(basename "$bin") has no version flag"
+          done
           sha256sum "out/${{ matrix.bundle }}-linux-${{ matrix.arch }}.tar.gz" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Attest build provenance

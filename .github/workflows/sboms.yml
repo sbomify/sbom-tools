@@ -13,11 +13,15 @@
 # fetching the jvm bundle gets ~466MB of toolchain; describing only the four Go
 # modules we compiled would answer a question nobody asked.
 #
-# Bundles are described by the syft inside them, which is convenient rather
-# than clever: every bundle ships syft for its own sake, so nothing extra is
-# downloaded to describe one, and syft reads Go build info out of compiled
-# binaries -- so the module graphs of the tools we built come along without
-# their lock files being read a second time.
+# Bundles are described by pointing the action at the unpacked directory. It
+# could not do that until recently -- its inputs were a lock file, an SBOM or a
+# container image -- which meant describing our own bundles reached past the
+# action to raw syft. Shipping artifacts our own tool cannot describe is a poor
+# advertisement for it, so the action learned to scan a directory instead.
+#
+# Underneath it is still syft, which reads Go build info out of compiled
+# binaries, so the module graphs of the tools we built come along without their
+# lock files being read a second time.
 #
 # Two environments, chosen from the triggering ref, matching sbomify-action:
 #   * staging     -- every push to master -> stage.sbomify.com
@@ -179,7 +183,7 @@ jobs:
       # amd64 only. The two architectures hold the same tools at the same
       # versions and differ in machine code, which an SBOM does not describe --
       # two documents would differ only in their file hashes.
-      - name: Unpack the published bundle and describe it with its own syft
+      - name: Unpack the published bundle
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -187,23 +191,8 @@ jobs:
           ASSET="${{ matrix.bundle }}-linux-amd64.tar.gz"
           gh release download "${{ steps.cfg.outputs.release }}" --repo "$GITHUB_REPOSITORY" \
             --pattern "$ASSET" --dir . --clobber
-          PREFIX="$PWD/unpacked"
-          mkdir -p "$PREFIX"
-          tar xzf "$ASSET" -C "$PREFIX"
-          "$PREFIX/bin/syft" scan "dir:$PREFIX" \
-            -o "cyclonedx-json=$PWD/bundle-${{ matrix.bundle }}.cdx.json" \
-            --source-name "sbom-tools-${{ matrix.bundle }}"
-          python3 - <<'EOF'
-          import json
-          import sys
-
-          document = json.load(open("bundle-${{ matrix.bundle }}.cdx.json"))
-          count = len(document.get("components") or [])
-          print(f"::notice::${{ matrix.bundle }} bundle: {count} components")
-          # An empty document uploads cleanly and describes nothing, which is
-          # the failure this whole workflow exists to prevent.
-          sys.exit(0 if count else "syft produced an empty SBOM")
-          EOF
+          mkdir -p unpacked
+          tar xzf "$ASSET" -C unpacked
 
       - uses: sbomify/sbomify-action@master
         env:
@@ -212,8 +201,23 @@ jobs:
           COMPONENT_ID: ${{ steps.cfg.outputs.is_prod == 'true' && matrix.prod_id || matrix.staging_id }}
           COMPONENT_NAME: sbom-tools - ${{ matrix.bundle }} bundle
           COMPONENT_VERSION: ${{ steps.cfg.outputs.version }}
-          SBOM_FILE: bundle-${{ matrix.bundle }}.cdx.json
+          LOCK_FILE: unpacked
+          OUTPUT_FILE: bundle-${{ matrix.bundle }}.cdx.json
           UPLOAD: 'true'
           AUGMENT: 'true'
           ENRICH: 'true'
           SBOMIFY_CACHE_DIR: ${{ github.workspace }}/.sbomify-cache
+
+      # An empty document uploads cleanly and describes nothing, which is the
+      # failure this workflow exists to prevent.
+      - name: Refuse an empty bundle SBOM
+        run: |
+          python3 - <<'EOF'
+          import json
+          import sys
+
+          document = json.load(open("bundle-${{ matrix.bundle }}.cdx.json"))
+          count = len(document.get("components") or [])
+          print(f"::notice::${{ matrix.bundle }} bundle: {count} components")
+          sys.exit(0 if count else "the bundle SBOM is empty")
+          EOF

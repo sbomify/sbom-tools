@@ -79,18 +79,19 @@ jobs:
             staging_id: yZ16icN0OIMN
             prod_id: WapGqhUUErEZ
             lockfile: bun.lock
-          # The CycloneDX build plugins. Not compiled here -- Maven, Gradle and
-          # sbt fetch them at run time -- but pinned here, so described here.
-          - name: maven-plugins
-            component_name: sbom-tools - Maven Plugins
+          # The CycloneDX build plugins, as additional packages rather than a
+          # scan. tools/pom.xml and tools/build.gradle pin versions where
+          # Dependabot can maintain them; neither is a project. The pom
+          # declares no dependencies and the gradle file is a bare buildscript
+          # block, so a generator pointed at either resolves nothing -- cdxgen
+          # failed with "null null". The plugins are real supply chain all the
+          # same: Maven, Gradle and sbt fetch them at run time and they shape
+          # every JVM SBOM we produce, while appearing in nothing we ship.
+          - name: build-plugins
+            component_name: sbom-tools - Build Plugins
             staging_id: OaGapU0irAlf
             prod_id: aVlfJRUyWiai
-            lockfile: tools/pom.xml
-          - name: gradle-plugins
-            component_name: sbom-tools - Gradle Plugins
-            staging_id: TRQPSbnQHGqG
-            prod_id: UzaHvvvYRSUc
-            lockfile: tools/build.gradle
+            lockfile: none
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -103,12 +104,18 @@ jobs:
       # should not be reported as a broken upload.
       - id: present
         run: |
-          if [ -e "${{ matrix.lockfile }}" ]; then
+          if [ "${{ matrix.lockfile }}" = "none" ] || [ -e "${{ matrix.lockfile }}" ]; then
             echo "found=true" >> "$GITHUB_OUTPUT"
           else
             echo "found=false" >> "$GITHUB_OUTPUT"
             echo "::notice::${{ matrix.lockfile }} is not in this commit yet; skipping"
           fi
+
+      # Read from the manifests Dependabot maintains, so the listed versions
+      # cannot drift from the pins.
+      - name: List the build plugins
+        if: matrix.lockfile == 'none'
+        run: python3 scripts/plugin_purls.py | tee additional_packages.txt
 
       - id: cfg
         env:
@@ -140,6 +147,7 @@ jobs:
           COMPONENT_NAME: ${{ matrix.component_name }}
           COMPONENT_VERSION: ${{ steps.cfg.outputs.version }}
           LOCK_FILE: ${{ matrix.lockfile }}
+          ADDITIONAL_PACKAGES_FILE: ${{ matrix.lockfile == 'none' && 'additional_packages.txt' || '' }}
           SBOM_FORMAT: cyclonedx
           UPLOAD: 'true'
           AUGMENT: 'true'

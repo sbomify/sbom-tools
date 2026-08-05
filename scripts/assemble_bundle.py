@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -107,9 +108,42 @@ def die(message: str) -> None:
     raise SystemExit(1)
 
 
+#: Where verified downloads are kept between runs.
+#:
+#: Every bundle pulls its toolchain from the vendor -- a 190MB JDK, a .NET SDK
+#: larger than that, Go, Rust, Gradle, Maven, sbt, bun -- and CI assembles
+#: fourteen bundles. Without this each job fetched all of it again from the
+#: vendor's CDN on every build, for artifacts pinned to an exact digest and
+#: therefore incapable of changing.
+DOWNLOAD_CACHE = Path(
+    os.environ.get("SBOM_TOOLS_DOWNLOAD_CACHE", Path.home() / ".cache" / "sbom-tools" / "downloads")
+)
+
+
+def _digest_of(path: Path, algorithm: str) -> str:
+    hasher = hashlib.new(algorithm)
+    with path.open("rb") as handle:
+        while chunk := handle.read(CHUNK):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
 def download_verified(url: str, algorithm: str, digest: str, dest: Path) -> None:
-    """Fetch url, refusing it unless it hashes to the pinned digest."""
-    print(f"  fetching {url.rsplit('/', 1)[-1]}")
+    """Fetch url, refusing it unless it hashes to the pinned digest.
+
+    Cached by digest rather than by URL, so the cache cannot serve the wrong
+    bytes: an entry is only used when it already hashes to what the manifest
+    demands. A version bump changes the digest and therefore misses, and a
+    corrupted entry misses too rather than poisoning the build.
+    """
+    name = url.rsplit("/", 1)[-1]
+    cached = DOWNLOAD_CACHE / f"{algorithm}-{digest}"
+    if cached.is_file() and _digest_of(cached, algorithm) == digest:
+        shutil.copy2(cached, dest)
+        print(f"  ✓ {name} from cache ({algorithm} {digest[:16]}…)")
+        return
+
+    print(f"  fetching {name}")
     hasher = hashlib.new(algorithm)
     with urllib.request.urlopen(url, timeout=300) as response, dest.open("wb") as handle:  # noqa: S310
         while chunk := response.read(CHUNK):
@@ -119,6 +153,16 @@ def download_verified(url: str, algorithm: str, digest: str, dest: Path) -> None
     if actual != digest:
         die(f"{url}: expected {algorithm}:{digest}, got {actual}")
     print(f"  ✓ {algorithm} matches the pin ({actual[:16]}…)")
+    try:
+        DOWNLOAD_CACHE.mkdir(parents=True, exist_ok=True)
+        # Written aside then renamed: two bundles assembling in parallel share
+        # this directory, and a half-written entry that happened to be read
+        # would fail its digest check but waste the fetch.
+        staging = DOWNLOAD_CACHE / f".{algorithm}-{digest}.partial"
+        shutil.copy2(dest, staging)
+        staging.replace(cached)
+    except OSError as exc:  # pragma: no cover - caching is an optimisation
+        print(f"  note: could not cache {name}: {exc}")
 
 
 def safe_extract(archive: Path, into: Path) -> None:

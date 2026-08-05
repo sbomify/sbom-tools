@@ -82,7 +82,7 @@ jobs:
         # keys are absent from the base matrix merges into every combination,
         # so both entries applied to all four tools and the second simply
         # overwrote the first. Only arm64 was ever built.
-        tool: [syft, cosign, crane, cyclonedx-gomod]
+        tool: [syft, cosign, crane, cyclonedx-gomod, cdxgen-launcher]
         goarch: [amd64, arm64]
         include:
           - { goarch: amd64, runner: ubuntu-latest }
@@ -108,9 +108,17 @@ jobs:
             cosign)          MOD=github.com/sigstore/cosign/v3;          PKG=$MOD/cmd/cosign ;;
             crane)           MOD=github.com/google/go-containerregistry; PKG=$MOD/cmd/crane ;;
             cyclonedx-gomod) MOD=github.com/CycloneDX/cyclonedx-gomod;   PKG=$MOD/cmd/cyclonedx-gomod ;;
+            # Ours, and in this repository: a static launcher so cdxgen is a
+            # normal executable on PATH. Its own package has no version to
+            # resolve, so the module version stands in.
+            cdxgen-launcher) MOD=github.com/sbomify/sbom-tools;           PKG=./cmd/cdxgen ;;
             *) echo "unknown tool ${{ matrix.tool }}" >&2; exit 1 ;;
           esac
-          VERSION=$(go list -m -f '{{ .Version }}' "$MOD")
+          if [ "${{ matrix.tool }}" = "cdxgen-launcher" ]; then
+            VERSION=$(git rev-parse --short HEAD)
+          else
+            VERSION=$(go list -m -f '{{ .Version }}' "$MOD")
+          fi
           { echo "pkg=$PKG"; echo "version=${VERSION#v}"; echo "tag=$VERSION"; } >> "$GITHUB_OUTPUT"
 
       - name: Build

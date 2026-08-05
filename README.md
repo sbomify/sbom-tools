@@ -61,11 +61,24 @@ that is still downloadable never complains about being old.
 | `Cargo.lock` | Dependabot `cargo` | cargo-cyclonedx |
 | `bun.lock` | Dependabot `bun` | cdxgen |
 | `global.json` | Dependabot `dotnet-sdk` | the .NET SDK |
-| `bundles.toml` | `scripts/check_tool_versions.py` | the JDK, Maven, Gradle, sbt, Rust |
+| `bun.lock` | Dependabot `bun` | cdxgen |
+| `bundles.toml` | `scripts/check_tool_versions.py` | the JDK, bun, Maven, Gradle, sbt, Rust |
 
-The last row is the residue: no Dependabot ecosystem covers a JDK, a Maven or
-Gradle distribution, an sbt launcher or a Rust toolchain, so those stay
-literal and are watched by a script instead.
+The last row is the residue, and it is all *runtimes* rather than our tools:
+no Dependabot ecosystem covers a JDK, a bun or Maven or Gradle distribution,
+an sbt launcher or a Rust toolchain. Those stay literal and are watched by a
+script instead.
+
+Everything in the rows above is one of our own tools, and every one of them
+is pinned by the package manager that owns it — nothing here maintains a
+second, parallel pin. cdxgen was the last exception: it shipped as upstream's
+prebuilt binary under a sha256 of our own, and now comes from `bun.lock`,
+which records a sha512 for it and 197 other packages and refuses anything
+that does not match.
+
+The bundle stays self-contained. `bun install --frozen-lockfile` runs when
+the bundle is *assembled*, not when it is fetched — what ships is bun plus a
+populated `node_modules`, ready to run with nothing to install.
 
 URLs for the manifest-driven pins are templated on `{version}`, so a bump
 reaches the download. The digest beside it does **not** follow, which is why

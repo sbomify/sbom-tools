@@ -195,6 +195,20 @@ def add_upstream(name: str, spec: dict, arch: str, prefix: Path, scratch: Path) 
     if spec.get("strip_container"):
         strip_container(staging)
 
+    if keep := spec.get("keep"):
+        # Some distributions are mostly things the bundle will never use --
+        # Node ships 84MB of headers and npm alongside the interpreter. Keep
+        # the named paths and drop the rest.
+        wanted = {str(k) for k in keep}
+        for entry in sorted(staging.rglob("*"), reverse=True):
+            rel = str(entry.relative_to(staging))
+            if any(rel == w or rel.startswith(w + "/") or w.startswith(rel + "/") for w in wanted):
+                continue
+            if entry.is_dir():
+                shutil.rmtree(entry, ignore_errors=True)
+            else:
+                entry.unlink(missing_ok=True)
+
     if payload := spec.get("payload"):
         # A Rust dist tarball is an installer, not a tree to unpack: under the
         # version-named wrapper it carries the component itself (cargo/,
@@ -223,6 +237,41 @@ def add_upstream(name: str, spec: dict, arch: str, prefix: Path, scratch: Path) 
                 continue
             die(f"{name}: {destination.name} already exists in the bundle")
         shutil.move(str(entry), str(destination))
+
+
+def install_from_lockfile(prefix: Path, scratch: Path) -> None:
+    """Install cdxgen from bun.lock, letting bun do the verifying.
+
+    cdxgen is one of our tools, so it is pinned where the rest are -- in a
+    lockfile, checked by the package manager that owns it. bun.lock records a
+    sha512 for it and 197 other packages, and --frozen-lockfile refuses
+    anything that does not match. Shipping upstream's prebuilt binary instead
+    meant a second pin: our own sha256, of a different artefact, in a file no
+    bot can read.
+
+    --omit=optional drops 375MB of per-platform plugin binaries nothing here
+    uses; verified identical output without them, 99 components for
+    symfony/demo either way.
+    """
+    for name in ("package.json", "bun.lock"):
+        shutil.copy(ROOT / name, prefix / name)
+    # bun is used to install, not to run: it reads bun.lock and verifies each
+    # package against the sha512 recorded there. It is a build-time tool and
+    # is not shipped -- the bundle carries Node, which is what cdxgen runs
+    # under.
+    bun = shutil.which("bun")
+    if not bun:
+        die("bun is required to install from bun.lock; install it in the build environment")
+    result = subprocess.run(  # noqa: S603
+        [bun, "install", "--frozen-lockfile", "--production", "--omit=optional"],
+        cwd=prefix, capture_output=True, text=True, timeout=1800,
+    )
+    if result.returncode != 0:
+        die(f"bun install failed: {(result.stderr or result.stdout).strip()[:300]}")
+    installed = prefix / "node_modules" / "@cyclonedx" / "cdxgen" / "bin" / "cdxgen.js"
+    if not installed.is_file():
+        die("bun install completed but cdxgen is not present")
+    print(f"  cdxgen installed from bun.lock ({sum(1 for _ in (prefix / 'node_modules').iterdir())} packages)")
 
 
 def write_manifest(bundle: str, spec: dict, arch: str, prefix: Path, provides: list[str]) -> None:
@@ -283,19 +332,28 @@ def main() -> int:
         (prefix / "bin").mkdir(parents=True)
         provides: list[str] = []
 
+        # The launcher is built under its own name so it does not collide with
+        # the package it runs, but it goes on PATH as cdxgen.
+        installed_as = {"cdxgen-launcher": "cdxgen"}
+
         for tool in spec.get("built", []):
             source = args.built_dir / f"{tool}-linux-{args.arch}"
             if not source.is_file():
                 die(f"{tool}: {source} is missing; build it before assembling")
-            target = prefix / "bin" / tool
+            name = installed_as.get(tool, tool)
+            target = prefix / "bin" / name
             shutil.copy2(source, target)
             target.chmod(0o755)
-            provides.append(tool)
-            print(f"  included {tool} (built here)")
+            if name not in provides:
+                provides.append(name)
+            print(f"  included {name} (built here)")
 
         for name, upstream in (spec.get("upstream") or {}).items():
             add_upstream(name, upstream, args.arch, prefix, scratch)
             provides.append(name)
+
+        if spec.get("npm_install"):
+            install_from_lockfile(prefix, scratch)
 
         write_manifest(args.bundle, spec, args.arch, prefix, provides)
 

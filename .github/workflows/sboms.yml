@@ -43,33 +43,38 @@ jobs:
       matrix:
         # Each row carries both component IDs; the env block picks one.
         #
+        # The components were renamed from "sbomify Action - ..." when they
+        # moved here, and each has an OIDC trusted-publisher binding to this
+        # repository -- without one the exchange returns 403 and nothing
+        # uploads, whatever the token says.
+        #
         # bun.lock has no row yet: cdxgen is pinned there and deserves the same
         # treatment, but no component exists for it and inventing an ID would
         # upload into nothing. Adding one is a console action, not a code one.
         include:
           - name: go-tools-cyclonedx
-            component_name: sbomify Action - Go Stack
+            component_name: sbom-tools - Go Stack
             staging_id: RTJwLK2FfnCf
             prod_id: Z3h0vxP1WMTs
             lockfile: go.mod
             sbom_format: cyclonedx
             output_file: sbom-tools-go.cdx.json
           - name: go-tools-spdx
-            component_name: sbomify Action - Go Stack
+            component_name: sbom-tools - Go Stack
             staging_id: RTJwLK2FfnCf
             prod_id: Z3h0vxP1WMTs
             lockfile: go.mod
             sbom_format: spdx
             output_file: sbom-tools-go.spdx.json
           - name: rust-tools-cyclonedx
-            component_name: sbomify Action - Rust Stack
+            component_name: sbom-tools - Rust Stack
             staging_id: Cc1VJdfrm72W
             prod_id: lTIkL5r8HjYt
             lockfile: Cargo.lock
             sbom_format: cyclonedx
             output_file: sbom-tools-rust.cdx.json
           - name: rust-tools-spdx
-            component_name: sbomify Action - Rust Stack
+            component_name: sbom-tools - Rust Stack
             staging_id: Cc1VJdfrm72W
             prod_id: lTIkL5r8HjYt
             lockfile: Cargo.lock

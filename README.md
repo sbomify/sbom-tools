@@ -37,7 +37,7 @@ without root.
 | `go` | cyclonedx-gomod + Go toolchain | 99.9 MiB |
 | `rust` | cargo-cyclonedx + cargo, rustc | 176.1 MiB |
 | `jvm` | cdxgen + JDK, Maven, Gradle, sbt | 466.7 MiB |
-| `dotnet` | cdxgen + .NET SDK | 269.8 MiB |
+| `dotnet` | cdxgen + .NET SDK | 289.0 MiB |
 | `cdxgen` | cdxgen alone | 70.3 MiB |
 | `syft` | syft | 27.1 MiB |
 | `sigstore` | cosign, crane | 32.9 MiB |

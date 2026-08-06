@@ -13,29 +13,31 @@
 # fetching the jvm bundle gets ~466MB of toolchain; describing only the four Go
 # modules we compiled would answer a question nobody asked.
 #
-# Bundles are scanned with the syft from the syft bundle, fetched once per job.
-# The first version used the syft inside each bundle, which is wrong: the
-# sigstore bundle ships cosign and crane and nothing else, so that job died
-# with "unpacked/bin/syft: No such file or directory". Taking the scanner from
-# a known bundle rather than the one under test also means the scanner does
-# not vary with the subject.
+# Bundles are handed to the action as a directory, via SOURCE_DIR. The action
+# scans it with the syft in its own image and then enriches and augments the
+# result, which a raw scan does not.
 #
-# Pointing the action at the unpacked directory would be better -- it adds the
-# enrichment and augmentation this raw scan skips -- and sbomify-action grew a
-# SOURCE_DIR input for exactly that. It is not usable here yet, and the switch
-# has to be timed:
+# Two earlier versions are worth not repeating. The first ran the syft inside
+# each bundle, which the sigstore bundle does not have -- it ships cosign and
+# crane and nothing else -- so that job died on "unpacked/bin/syft: No such
+# file or directory". The second downloaded the syft bundle to get a scanner
+# that did not vary with the subject, then uploaded the result with SBOM_FILE;
+# correct, but it skipped enrichment and pinned the scan to a second copy of
+# syft this repository had to fetch and unpack on every job.
 #
-#   1. sbomify-action#320 merges and ghcr.io/sbomify/sbomify-action:latest
-#      republishes carrying SOURCE_DIR
-#   2. only then, replace the syft scan and SBOM_FILE below with
-#      SOURCE_DIR: unpacked
+# SOURCE_DIR is a distinct input from LOCK_FILE, not a relaxation of it. An
+# attempt at this before that input existed passed the directory as LOCK_FILE
+# and failed with "Specified input file 'unpacked' not found". The two describe
+# different things: a lock file is the graph an ecosystem resolved -- pinned
+# and complete -- while a directory is whatever is on disk, catalogued by
+# whatever the scanner recognises. A bundle has no manifest listing the JDK,
+# Maven, Gradle and Go toolchain it carries, so the directory is the only
+# honest subject for it.
 #
-# Doing step 2 first fails every bundle job: the running image rejects an input
-# it does not know. An earlier attempt at this used LOCK_FILE for a directory
-# and failed with "Specified input file 'unpacked' not found" -- which is why
-# a directory is its own input now, rather than a lock file that happens to be
-# one. A lock file is the graph an ecosystem resolved; a directory is what is
-# on disk.
+# The scanner is now whichever syft the action image ships, rather than
+# whichever the syft bundle ships. That still satisfies the property the
+# download was there for -- the scanner does not vary with the subject under
+# test -- and it removes a moving part from this workflow.
 #
 # Underneath it is syft either way, which reads Go build info out of compiled
 # binaries, so the module graphs of the tools we built come along without their
@@ -224,7 +226,7 @@ jobs:
       # amd64 only. The two architectures hold the same tools at the same
       # versions and differ in machine code, which an SBOM does not describe --
       # two documents would differ only in their file hashes.
-      - name: Unpack the published bundle and describe it with its own syft
+      - name: Unpack the published bundle
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -232,17 +234,8 @@ jobs:
           ASSET="${{ matrix.bundle }}-linux-amd64.tar.gz"
           gh release download "${{ steps.cfg.outputs.release }}" --repo "$GITHUB_REPOSITORY" \
             --pattern "$ASSET" --dir . --clobber
-          PREFIX="$PWD/unpacked"
-          mkdir -p "$PREFIX"
-          tar xzf "$ASSET" -C "$PREFIX"
-          # The scanner, from the bundle whose whole purpose is to carry it.
-          gh release download "${{ steps.cfg.outputs.release }}" --repo "$GITHUB_REPOSITORY" \
-            --pattern "syft-linux-amd64.tar.gz" --dir . --clobber
-          mkdir -p scanner
-          tar xzf syft-linux-amd64.tar.gz -C scanner
-          ./scanner/bin/syft scan "dir:$PREFIX" \
-            -o "cyclonedx-json=$PWD/bundle-${{ matrix.bundle }}.cdx.json" \
-            --source-name "sbom-tools-${{ matrix.bundle }}"
+          mkdir -p unpacked
+          tar xzf "$ASSET" -C unpacked
 
       - uses: sbomify/sbomify-action@master
         env:
@@ -251,7 +244,10 @@ jobs:
           COMPONENT_ID: ${{ steps.cfg.outputs.is_prod == 'true' && matrix.prod_id || matrix.staging_id }}
           COMPONENT_NAME: sbom-tools - ${{ matrix.bundle }} bundle
           COMPONENT_VERSION: ${{ steps.cfg.outputs.version }}
-          SBOM_FILE: bundle-${{ matrix.bundle }}.cdx.json
+          SOURCE_DIR: unpacked
+          # Named rather than left as the default sbom_output.json, so the
+          # emptiness check below keeps reading one predictable path.
+          OUTPUT_FILE: bundle-${{ matrix.bundle }}.cdx.json
           UPLOAD: 'true'
           AUGMENT: 'true'
           ENRICH: 'true'

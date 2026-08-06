@@ -24,24 +24,26 @@
 # enrichment and augmentation this raw scan skips -- and sbomify-action grew a
 # SOURCE_DIR input for exactly that. It is not usable here yet.
 #
-# The gate is a sbomify-action *release*, not a merge to its master. This
-# workflow pins sbomify/sbomify-action@master, but action.yml there hardcodes
-# `image: docker://ghcr.io/sbomify/sbomify-action:latest`, and that tag only
-# moves on a release: ghcr holds 0.5.0 ... 26.7.0 and `latest`, with no branch
-# or commit tags at all. So a green master, and even a green "Push Docker
-# Images" job, says nothing about what this workflow will actually run.
+# The blocker is a bug in the action, not the age of the image. #29 switched
+# to SOURCE_DIR and every bundle job failed: the image printed its usage and
+# exited 0, so no SBOM was written and the emptiness check below died on a
+# missing file. The image was current -- its banner read v26.7.0+6b3fd61, the
+# master commit that carries SOURCE_DIR.
 #
-# That distinction is not academic. #29 switched to SOURCE_DIR on the strength
-# of the merge and the push job, and every bundle job failed -- the running
-# image printed its usage ("Provide one of: --sbom-file, --lock-file, or
-# --docker-image") and wrote no SBOM, so the emptiness check below died on a
-# missing file. Reverted in #30.
+# The cause is sbomify-action's "did the user give us an input?" check, which
+# listed sbom_file, docker_image and lock_file but not source_dir. SOURCE_DIR
+# alone therefore read as no input at all: print help, exit 0, do nothing.
+# Green step, no SBOM. Fixed in sbomify-action#340. Reverted here in #30.
 #
-# Before switching, check the image rather than the repository:
+# Switch back once an image carrying that fix is published. Check the image
+# rather than the repository -- a green master says nothing about what has been
+# pushed to :latest:
 #
-#   docker run --rm ghcr.io/sbomify/sbomify-action:latest --help | grep source-dir
+#   docker run --rm ghcr.io/sbomify/sbomify-action:latest \
+#     --source-dir /tmp --upload false 2>&1 | head -5
 #
-# and only then replace the syft scan and SBOM_FILE below with
+# If that prints the usage banner instead of starting a scan, the fix is not in
+# the image yet. Only then replace the syft scan and SBOM_FILE below with
 # SOURCE_DIR: unpacked.
 #
 # An earlier attempt used LOCK_FILE for a directory and failed with "Specified

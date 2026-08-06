@@ -30,21 +30,25 @@
 # missing file. The image was current -- its banner read v26.7.0+6b3fd61, the
 # master commit that carries SOURCE_DIR.
 #
-# The cause is sbomify-action's "did the user give us an input?" check, which
-# listed sbom_file, docker_image and lock_file but not source_dir. SOURCE_DIR
-# alone therefore read as no input at all: print help, exit 0, do nothing.
-# Green step, no SBOM. Fixed in sbomify-action#340. Reverted here in #30.
+# The cause is sbomify-action dropping the value in three places: the "did the
+# user give us an input?" check, the call into build_config, and build_config's
+# own Config(...). SOURCE_DIR alone therefore read as no input at all: print
+# help, exit 0, do nothing. Green step, no SBOM. Fixed in sbomify-action#340.
+# Reverted here in #30.
 #
-# Switch back once an image carrying that fix is published. Check the image
-# rather than the repository -- a green master says nothing about what has been
-# pushed to :latest:
+# No release is needed to pick that up. :latest is built from master -- the
+# image that failed here reported revision 6b3fd61, a master merge commit --
+# so merging #340 and letting its pipeline finish republishes :latest.
+#
+# Wait for that pipeline, then confirm against the image rather than the
+# commit, since only the image is what this workflow runs:
 #
 #   docker run --rm ghcr.io/sbomify/sbomify-action:latest \
 #     --source-dir /tmp --upload false 2>&1 | head -5
 #
-# If that prints the usage banner instead of starting a scan, the fix is not in
-# the image yet. Only then replace the syft scan and SBOM_FILE below with
-# SOURCE_DIR: unpacked.
+# If that prints the usage banner instead of starting a scan, the fix has not
+# landed in the image yet. Once it scans, replace the syft scan and SBOM_FILE
+# below with SOURCE_DIR: unpacked.
 #
 # An earlier attempt used LOCK_FILE for a directory and failed with "Specified
 # input file 'unpacked' not found" -- which is why a directory is its own input

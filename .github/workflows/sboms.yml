@@ -13,31 +13,47 @@
 # fetching the jvm bundle gets ~466MB of toolchain; describing only the four Go
 # modules we compiled would answer a question nobody asked.
 #
-# Bundles are handed to the action as a directory, via SOURCE_DIR. The action
-# scans it with the syft in its own image and then enriches and augments the
-# result, which a raw scan does not.
+# Bundles are scanned with the syft from the syft bundle, fetched once per job.
+# The first version used the syft inside each bundle, which is wrong: the
+# sigstore bundle ships cosign and crane and nothing else, so that job died
+# with "unpacked/bin/syft: No such file or directory". Taking the scanner from
+# a known bundle rather than the one under test also means the scanner does
+# not vary with the subject.
 #
-# Two earlier versions are worth not repeating. The first ran the syft inside
-# each bundle, which the sigstore bundle does not have -- it ships cosign and
-# crane and nothing else -- so that job died on "unpacked/bin/syft: No such
-# file or directory". The second downloaded the syft bundle to get a scanner
-# that did not vary with the subject, then uploaded the result with SBOM_FILE;
-# correct, but it skipped enrichment and pinned the scan to a second copy of
-# syft this repository had to fetch and unpack on every job.
+# Pointing the action at the unpacked directory would be better -- it adds the
+# enrichment and augmentation this raw scan skips -- and sbomify-action grew a
+# SOURCE_DIR input for exactly that. It is not usable here yet.
 #
-# SOURCE_DIR is a distinct input from LOCK_FILE, not a relaxation of it. An
-# attempt at this before that input existed passed the directory as LOCK_FILE
-# and failed with "Specified input file 'unpacked' not found". The two describe
-# different things: a lock file is the graph an ecosystem resolved -- pinned
-# and complete -- while a directory is whatever is on disk, catalogued by
-# whatever the scanner recognises. A bundle has no manifest listing the JDK,
-# Maven, Gradle and Go toolchain it carries, so the directory is the only
-# honest subject for it.
+# The blocker is a bug in the action, not the age of the image. #29 switched
+# to SOURCE_DIR and every bundle job failed: the image printed its usage and
+# exited 0, so no SBOM was written and the emptiness check below died on a
+# missing file. The image was current -- its banner read v26.7.0+6b3fd61, the
+# master commit that carries SOURCE_DIR.
 #
-# The scanner is now whichever syft the action image ships, rather than
-# whichever the syft bundle ships. That still satisfies the property the
-# download was there for -- the scanner does not vary with the subject under
-# test -- and it removes a moving part from this workflow.
+# The cause is sbomify-action dropping the value in three places: the "did the
+# user give us an input?" check, the call into build_config, and build_config's
+# own Config(...). SOURCE_DIR alone therefore read as no input at all: print
+# help, exit 0, do nothing. Green step, no SBOM. Fixed in sbomify-action#340.
+# Reverted here in #30.
+#
+# No release is needed to pick that up. :latest is built from master -- the
+# image that failed here reported revision 6b3fd61, a master merge commit --
+# so merging #340 and letting its pipeline finish republishes :latest.
+#
+# Wait for that pipeline, then confirm against the image rather than the
+# commit, since only the image is what this workflow runs:
+#
+#   docker run --rm ghcr.io/sbomify/sbomify-action:latest \
+#     --source-dir /tmp --upload false 2>&1 | head -5
+#
+# If that prints the usage banner instead of starting a scan, the fix has not
+# landed in the image yet. Once it scans, replace the syft scan and SBOM_FILE
+# below with SOURCE_DIR: unpacked.
+#
+# An earlier attempt used LOCK_FILE for a directory and failed with "Specified
+# input file 'unpacked' not found" -- which is why a directory is its own input
+# now, rather than a lock file that happens to be one. A lock file is the graph
+# an ecosystem resolved; a directory is what is on disk.
 #
 # Underneath it is syft either way, which reads Go build info out of compiled
 # binaries, so the module graphs of the tools we built come along without their
@@ -226,7 +242,7 @@ jobs:
       # amd64 only. The two architectures hold the same tools at the same
       # versions and differ in machine code, which an SBOM does not describe --
       # two documents would differ only in their file hashes.
-      - name: Unpack the published bundle
+      - name: Unpack the published bundle and describe it with its own syft
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -234,8 +250,17 @@ jobs:
           ASSET="${{ matrix.bundle }}-linux-amd64.tar.gz"
           gh release download "${{ steps.cfg.outputs.release }}" --repo "$GITHUB_REPOSITORY" \
             --pattern "$ASSET" --dir . --clobber
-          mkdir -p unpacked
-          tar xzf "$ASSET" -C unpacked
+          PREFIX="$PWD/unpacked"
+          mkdir -p "$PREFIX"
+          tar xzf "$ASSET" -C "$PREFIX"
+          # The scanner, from the bundle whose whole purpose is to carry it.
+          gh release download "${{ steps.cfg.outputs.release }}" --repo "$GITHUB_REPOSITORY" \
+            --pattern "syft-linux-amd64.tar.gz" --dir . --clobber
+          mkdir -p scanner
+          tar xzf syft-linux-amd64.tar.gz -C scanner
+          ./scanner/bin/syft scan "dir:$PREFIX" \
+            -o "cyclonedx-json=$PWD/bundle-${{ matrix.bundle }}.cdx.json" \
+            --source-name "sbom-tools-${{ matrix.bundle }}"
 
       - uses: sbomify/sbomify-action@master
         env:
@@ -244,10 +269,7 @@ jobs:
           COMPONENT_ID: ${{ steps.cfg.outputs.is_prod == 'true' && matrix.prod_id || matrix.staging_id }}
           COMPONENT_NAME: sbom-tools - ${{ matrix.bundle }} bundle
           COMPONENT_VERSION: ${{ steps.cfg.outputs.version }}
-          SOURCE_DIR: unpacked
-          # Named rather than left as the default sbom_output.json, so the
-          # emptiness check below keeps reading one predictable path.
-          OUTPUT_FILE: bundle-${{ matrix.bundle }}.cdx.json
+          SBOM_FILE: bundle-${{ matrix.bundle }}.cdx.json
           UPLOAD: 'true'
           AUGMENT: 'true'
           ENRICH: 'true'

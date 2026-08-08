@@ -194,52 +194,30 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # Compiled rather than downloaded because php.net publishes no Linux
-      # binaries -- only source. The alternative was a third party's static
-      # build, which would have been the only component here not coming from
-      # its own vendor.
+      # A hit skips the compile outright. The binary is decided by the pinned
+      # tarball, the pinned builder image and the recipe -- nothing else is
+      # read -- so an unchanged key means the same build. Measured at the
+      # 4-core spec both these runners have, it costs 237s per architecture,
+      # 168s of that `make`, on every push to master, for a tool whose pin
+      # moves a few times a year.
       #
-      # Inside Alpine so it links against musl, which is what makes the result
-      # static-pie and therefore relocatable into any container. Building on
-      # the runner's glibc would produce a binary tied to that glibc.
+      # Keyed on the two files that decide the output rather than on build.yml,
+      # so editing an unrelated job does not rebuild PHP. The smoke test below
+      # is deliberately outside the `if`: a restored binary is checked for
+      # static linkage and for every module, exactly as a fresh one is, before
+      # anything is published.
+      - name: Cache the compiled PHP
+        id: php-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: dist/php-linux-${{ matrix.goarch }}
+          key: php-${{ matrix.goarch }}-${{ hashFiles('php-release.json', 'scripts/build_php.sh') }}
+
       - name: Build PHP from the pinned php.net release
+        if: steps.php-cache.outputs.cache-hit != 'true'
         run: |
-          set -euo pipefail
           mkdir -p dist
-          VERSION=$(python3 -c "import json;print(json.load(open('php-release.json'))['php']['version'])")
-          SHA=$(python3 -c "import json;print(json.load(open('php-release.json'))['php']['sha256'])")
-          IMAGE=$(python3 -c "import json;b=json.load(open('php-release.json'))['builder'];print(b['image']+'@'+b['digest'])")
-          echo "building php $VERSION in $IMAGE"
-          docker run --rm -v "$PWD/dist:/out" "$IMAGE" sh -eu -c "
-            apk add --no-cache build-base autoconf curl file re2c bison linux-headers \
-              openssl-dev openssl-libs-static zlib-dev zlib-static binutils >/dev/null
-            cd /tmp
-            curl -sSLo php.tar.gz 'https://www.php.net/distributions/php-$VERSION.tar.gz'
-            echo '$SHA  php.tar.gz' | sha256sum -c -
-            tar xzf php.tar.gz && cd php-$VERSION
-            # Only what Composer needs to run and resolve:
-            #   phar    - composer ships as one
-            #   openssl - packagist over HTTPS
-            #   zlib    - compressed transfers
-            #   iconv   - composer refuses to start without iconv or mbstring,
-            #             and iconv is in musl while mbstring would pull in
-            #             oniguruma
-            #   filter/ctype/tokenizer - composer's own requirements
-            # Extensions a *project* declares are irrelevant: nothing is
-            # installed here, only resolved. Verified against guzzle, Slim and
-            # laravel/framework, where this build returns exactly what Debian's
-            # full-featured php-cli returns.
-            ./configure \
-              --disable-all --disable-cgi --disable-phpdbg --enable-cli \
-              --enable-phar --enable-filter --enable-ctype --enable-tokenizer \
-              --with-iconv --with-openssl --with-zlib --without-pear \
-              --enable-static --disable-shared >/dev/null
-            # -all-static is libtool's spelling; plain -static in LDFLAGS is
-            # dropped and yields a dynamically linked binary.
-            make -j\"\$(nproc)\" LDFLAGS=-all-static >/dev/null
-            strip sapi/cli/php
-            cp sapi/cli/php /out/php-linux-${{ matrix.goarch }}
-          "
+          scripts/build_php.sh ${{ matrix.goarch }} dist/php-linux-${{ matrix.goarch }}
 
       - name: Smoke test
         run: |
@@ -254,8 +232,8 @@ jobs:
           fi
           # arm64 runs natively on the arm64 runner, so both can be executed.
           "./$BIN" --version
-          # Every module the configure line above enables on Composer's behalf,
-          # not a sample of them. The failure this catches is configure drift:
+          # Every module build_php.sh enables on Composer's behalf, not a
+          # sample of them. The failure this catches is configure drift:
           # a flag dropped or an alpine package gone missing still builds a
           # working php, and the gap only shows up later as a Composer error
           # inside a consumer's bundle, far from the change that caused it.

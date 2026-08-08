@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import sys
 import tomllib
 import urllib.error
@@ -28,6 +29,13 @@ from assemble_bundle import resolve_version  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / "bundles.toml"
+# php.net ships no binaries, so the php bundle pins a source tarball instead of
+# a release asset and keeps it in its own file. It is the same kind of pin with
+# the same failure -- a bumped version beside a stale digest refuses to
+# download -- so it is checked here rather than left to surface halfway through
+# a build. One pin, not two: the tarball is architecture-independent.
+PHP_RELEASE = ROOT / "php-release.json"
+PHP_URL = "https://www.php.net/distributions/php-{version}.tar.gz"
 CHUNK = 1 << 20
 
 
@@ -49,12 +57,14 @@ def main() -> int:
     parser.add_argument("--component", help="only this component")
     args = parser.parse_args()
 
-    text = MANIFEST.read_text()
-    bundles = tomllib.loads(text)["bundle"]
+    # Each pin remembers the file it came from, because --update rewrites that
+    # file and the two are different formats.
+    sources = {MANIFEST: MANIFEST.read_text()}
+    bundles = tomllib.loads(sources[MANIFEST])["bundle"]
 
     # One component can appear in several bundles (cdxgen, syft); check each
     # distinct pin once.
-    pins: dict[tuple[str, str, str], tuple[str, str]] = {}
+    pins: dict[tuple[str, str, str], tuple[str, str, Path]] = {}
     for bundle in bundles.values():
         for name, spec in (bundle.get("upstream") or {}).items():
             if args.component and args.component != name:
@@ -68,10 +78,16 @@ def main() -> int:
                 if not algorithm:
                     continue
                 url = str(per_arch["url"]).replace("{version}", version)
-                pins[(name, arch, url)] = (algorithm, str(per_arch[algorithm]))
+                pins[(name, arch, url)] = (algorithm, str(per_arch[algorithm]), MANIFEST)
+
+    if PHP_RELEASE.exists() and args.component in (None, "php"):
+        sources[PHP_RELEASE] = PHP_RELEASE.read_text()
+        php = json.loads(sources[PHP_RELEASE])["php"]
+        url = PHP_URL.format(version=php["version"])
+        pins[("php", "source", url)] = ("sha256", str(php["sha256"]), PHP_RELEASE)
 
     stale = []
-    for (name, arch, url), (algorithm, expected) in sorted(pins.items()):
+    for (name, arch, url), (algorithm, expected, source) in sorted(pins.items()):
         actual = digest_of(url, algorithm)
         if actual is None:
             stale.append((name, arch, url, algorithm, expected, "unreachable"))
@@ -83,11 +99,16 @@ def main() -> int:
         stale.append((name, arch, url, algorithm, expected, actual))
         print(f"  {name:<10}{arch:<7}STALE   pinned {expected[:16]}… actual {actual[:16]}…")
         if args.update:
-            text = text.replace(expected, actual)
+            sources[source] = sources[source].replace(expected, actual)
 
     if args.update and stale:
-        MANIFEST.write_text(text)
-        print(f"\nrewrote {len([s for s in stale if s[5] != 'unreachable'])} digest(s) in bundles.toml")
+        rewritten = [entry for entry in stale if entry[5] != "unreachable"]
+        touched = []
+        for path, updated in sources.items():
+            if updated != path.read_text():
+                path.write_text(updated)
+                touched.append(path.name)
+        print(f"\nrewrote {len(rewritten)} digest(s) in {', '.join(sorted(touched))}")
         return 0
 
     if stale:

@@ -111,6 +111,22 @@ cdxgen_type = "php"
 floor_cyclonedx = 20
 floor_spdx = 20
 
+[project.php-manifest]
+bundle = "php"
+# A library, which is the case the php bundle exists for: libraries gitignore
+# composer.lock because the consuming application resolves it, and that is
+# most of PHP on GitHub. Without composer on PATH cdxgen stops at "No composer
+# version found", falls through to syft, and syft writes a document with no
+# components -- exit 0 and nothing in it.
+repo = "guzzle/guzzle"
+ref = "7.9.2"
+lockfile = "composer.json"
+cdxgen_type = "php"
+# Measured at 8 with the bundle and 0 without. Deliberately low: it catches
+# "empty" and "collapsed", not upstream changing what it reports.
+floor_cyclonedx = 4
+floor_spdx = 4
+
 [project.elixir]
 bundle = "cdxgen"
 repo = "phoenixframework/phoenix"

@@ -45,7 +45,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        bundle: [jvm, go, rust, dotnet, cdxgen]
+        bundle: [jvm, go, rust, dotnet, cdxgen, php]
         arch: [amd64, arm64]
         include:
           - { arch: amd64, runner: ubuntu-latest }

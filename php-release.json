@@ -1,0 +1,18 @@
+{
+  "_comment": [
+    "The PHP release the php bundle is built from. php.net publishes no Linux",
+    "binaries -- only source -- so this pins the tarball we compile, by the",
+    "digest php.net publishes for it at",
+    "https://www.php.net/releases/index.php?json&version=8.5&max=1.",
+    "",
+    "A file of its own rather than a literal in build.yml, matching global.json",
+    "for the .NET SDK and go.mod for Go: a pin belongs somewhere greppable and",
+    "diffable. Nothing watches this one automatically -- there is no Dependabot",
+    "ecosystem for php.net source releases -- so it is bumped by hand, and the",
+    "digest is what makes that safe."
+  ],
+  "php": {
+    "version": "8.5.9",
+    "sha256": "d735459c2cbaeb0673d416c33d372d9ff261d562f6b29da48f3e6aeaeca083af"
+  }
+}

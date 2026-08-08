@@ -182,6 +182,88 @@ jobs:
           path: dist/${{ matrix.tool }}-linux-${{ matrix.goarch }}
           if-no-files-found: error
 
+  build-php:
+    name: php (${{ matrix.goarch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goarch: amd64, runner: ubuntu-latest }
+          - { goarch: arm64, runner: ubuntu-24.04-arm }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Compiled rather than downloaded because php.net publishes no Linux
+      # binaries -- only source. The alternative was a third party's static
+      # build, which would have been the only component here not coming from
+      # its own vendor.
+      #
+      # Inside Alpine so it links against musl, which is what makes the result
+      # static-pie and therefore relocatable into any container. Building on
+      # the runner's glibc would produce a binary tied to that glibc.
+      - name: Build PHP from the pinned php.net release
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          VERSION=$(python3 -c "import json;print(json.load(open('php-release.json'))['php']['version'])")
+          SHA=$(python3 -c "import json;print(json.load(open('php-release.json'))['php']['sha256'])")
+          echo "building php $VERSION"
+          docker run --rm -v "$PWD/dist:/out" alpine:3 sh -eu -c "
+            apk add --no-cache build-base autoconf curl file re2c bison linux-headers \
+              openssl-dev openssl-libs-static zlib-dev zlib-static binutils >/dev/null
+            cd /tmp
+            curl -sSLo php.tar.gz 'https://www.php.net/distributions/php-$VERSION.tar.gz'
+            echo '$SHA  php.tar.gz' | sha256sum -c -
+            tar xzf php.tar.gz && cd php-$VERSION
+            # Only what Composer needs to run and resolve:
+            #   phar    - composer ships as one
+            #   openssl - packagist over HTTPS
+            #   zlib    - compressed transfers
+            #   iconv   - composer refuses to start without iconv or mbstring,
+            #             and iconv is in musl while mbstring would pull in
+            #             oniguruma
+            #   filter/ctype/tokenizer - composer's own requirements
+            # Extensions a *project* declares are irrelevant: nothing is
+            # installed here, only resolved. Verified against guzzle, Slim and
+            # laravel/framework, where this build returns exactly what Debian's
+            # full-featured php-cli returns.
+            ./configure \
+              --disable-all --disable-cgi --disable-phpdbg --enable-cli \
+              --enable-phar --enable-filter --enable-ctype --enable-tokenizer \
+              --with-iconv --with-openssl --with-zlib --without-pear \
+              --enable-static --disable-shared >/dev/null
+            # -all-static is libtool's spelling; plain -static in LDFLAGS is
+            # dropped and yields a dynamically linked binary.
+            make -j\"\$(nproc)\" LDFLAGS=-all-static >/dev/null
+            strip sapi/cli/php
+            cp sapi/cli/php /out/php-linux-${{ matrix.goarch }}
+          "
+
+      - name: Smoke test
+        run: |
+          BIN="dist/php-linux-${{ matrix.goarch }}"
+          test -x "$BIN"
+          # Assert it, do not assume it: a dynamically linked binary would work
+          # on the runner and fail in the container the bundle is unpacked into.
+          file "$BIN"
+          if ! file "$BIN" | grep -qE "statically linked|static-pie linked"; then
+            echo "::error::$BIN is not statically linked" >&2
+            exit 1
+          fi
+          # arm64 runs natively on the arm64 runner, so both can be executed.
+          "./$BIN" --version
+          # iconv is the one Composer will not start without.
+          "./$BIN" -m | grep -qx iconv || { echo "::error::iconv missing" >&2; exit 1; }
+          "./$BIN" -m | grep -qx Phar || { echo "::error::phar missing" >&2; exit 1; }
+          "./$BIN" -m | grep -qx openssl || { echo "::error::openssl missing" >&2; exit 1; }
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tool-php-${{ matrix.goarch }}
+          path: dist/php-linux-${{ matrix.goarch }}
+          if-no-files-found: error
+
   build-rust:
     name: cargo-cyclonedx (${{ matrix.goarch }})
     runs-on: ${{ matrix.runner }}
@@ -265,8 +347,9 @@ jobs:
   # over a binary that is only an ingredient.
   assemble:
     name: bundle ${{ matrix.bundle }} (${{ matrix.arch }})
-    needs: [prepare-rolling, build-go, build-rust]
+    needs: [prepare-rolling, build-go, build-rust, build-php]
     if: always() && needs.build-go.result == 'success' && needs.build-rust.result == 'success'
+      && needs.build-php.result == 'success'
     # Assembled on the architecture being assembled for. Building arm64 on an
     # amd64 runner meant the pinned bun in the prefix could not be executed, so
     # the cdxgen install had to borrow a second, unpinned bun from the host --
@@ -280,7 +363,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        bundle: [go, rust, jvm, dotnet, cdxgen, syft, sigstore]
+        bundle: [go, rust, jvm, dotnet, php, cdxgen, syft, sigstore]
         arch: [amd64, arm64]
         include:
           - { arch: amd64, runner: ubuntu-latest }

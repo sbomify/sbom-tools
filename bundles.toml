@@ -228,6 +228,95 @@ env = { JAVA_HOME = "{prefix}/jdk", MAVEN_ARGS = "-Dmaven.repo.local={prefix}/re
   url = "https://github.com/sbt/sbt/releases/download/v1.12.14/sbt-1.12.14.tgz"
   sha256 = "cd17daae220ff264faa4251334522444518584f0eb2ee82da01523a9b9002b7e"
 
+[bundle.php]
+description = "cdxgen with the PHP runtime and Composer it shells out to"
+# syft is here for SPDX. The native CycloneDX tools -- cyclonedx-gomod,
+# cargo-cyclonedx, the Maven/Gradle/sbt plugins -- emit CycloneDX and
+# nothing else, so a bundle without syft can serve only one of the two
+# formats. A bundle should be able to answer either question on its own.
+#
+# php is "built" rather than "upstream" because php.net publishes no Linux
+# binaries -- only source. It is compiled from the tarball pinned in
+# php-release.json, by the digest php.net publishes for it, and comes out
+# static-pie linked like everything else built here.
+built = ["syft", "cdxgen-launcher", "php"]
+# cdxgen is one of ours, so it comes from the lockfile that pins it --
+# bun.lock records a sha512 for it and 197 other packages, and
+# --frozen-lockfile refuses anything that does not match. Optional
+# dependencies are omitted: they are per-platform plugin binaries worth
+# 375MB that nothing here uses, and the output is identical without them.
+npm_install = true
+env = { COMPOSER_HOME = "{prefix}/.composer", COMPOSER_CACHE_DIR = "{prefix}/.composer-cache", COMPOSER_ALLOW_SUPERUSER = "1" }
+# Without Composer, cdxgen cannot read a composer.json at all: it stops with
+# "No composer version found. Check if composer is installed and available in
+# PATH", falls through to syft, and syft writes a document with no components
+# -- which still exits 0.
+#
+# Measured against real libraries, which is where this matters: PHP libraries
+# gitignore composer.lock because the consuming application resolves it, and
+# that is most of PHP on GitHub. guzzle goes from 0 components to 8 and Slim
+# from 0 to 7. Two of the four tested stay at 0 for reasons of their own
+# (monolog's dev dependencies require monolog, and the root package of a
+# shallow clone has no version to satisfy them), so this is a large
+# improvement rather than a complete fix.
+#
+# A committed composer.lock never needed any of this -- cdxgen parses that as
+# data.
+#
+# The interpreter is deliberately minimal: phar to run composer.phar, openssl
+# for packagist, zlib, iconv (composer refuses to start without iconv or
+# mbstring), and the handful composer itself requires. Extensions a *project*
+# declares are irrelevant here because nothing is installed -- only resolved.
+# Verified rather than assumed: against guzzle, Slim and laravel/framework
+# this minimal build returns exactly what Debian's full-featured php-cli
+# returns, 8/8, 7/7 and 0/0.
+
+  # bun, pinned here because it is a runtime rather than one of our tools --
+  # the same category as the JDK, and in no lockfile of ours. cdxgen itself is
+  # ours and so comes from bun.lock below.
+  #
+  # bun rather than Node, and the counts alone argue the other way: for axios
+  # cdxgen reports 39 components under Node and 9 under bun. The 9 are right.
+  # axios declares follow-redirects, form-data and proxy-from-env, and bun
+  # returns exactly those plus their transitive closure. Node's extra thirty
+  # are Node builtins -- fs, assert, events -- and devDependencies such as
+  # gulp and handlebars, returned despite --required-only. A bigger document
+  # describing things the project does not depend on is not a better one.
+  [bundle.php.upstream.bun]
+  version = "1.3.14"
+  # The zip is bun-linux-x64/bun -- one directory holding the binary and
+  # nothing else -- so stripping the wrapper and landing it in bin/ puts it
+  # straight onto PATH.
+  strip_container = true
+  into = "bin"
+  [bundle.php.upstream.bun.amd64]
+  url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-linux-x64.zip"
+  sha256 = "951ee2aee855f08595aeec6225226a298d3fea83a3dcd6465c09cbccdf7e848f"
+  [bundle.php.upstream.bun.arm64]
+  url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-linux-aarch64.zip"
+  sha256 = "a27ffb63a8310375836e0d6f668ae17fa8d8d18b88c37c821c65331973a19a3b"
+
+  # composer.phar carries `#!/usr/bin/env php`, so landing it in bin/ named
+  # `composer` and marking it executable is all it needs -- the php built
+  # above is on the same PATH. No wrapper script, and nothing for a consumer
+  # to know.
+  #
+  # getcomposer.org is Composer's own distribution channel, and the phar is
+  # bytecode: identical on every architecture. Both entries therefore name
+  # the same artefact and the same digest. Listing it once per arch anyway
+  # keeps the schema uniform rather than making this the one component shaped
+  # differently.
+  [bundle.php.upstream.composer]
+  version = "2.9.4"
+  kind = "raw"
+  bin_name = "composer"
+  [bundle.php.upstream.composer.amd64]
+  url = "https://getcomposer.org/download/{version}/composer.phar"
+  sha256 = "d3eb5c4cb2e708267dac5f9a76d2a57b07836c7ea68783a1a02bd6d94753ea80"
+  [bundle.php.upstream.composer.arm64]
+  url = "https://getcomposer.org/download/{version}/composer.phar"
+  sha256 = "d3eb5c4cb2e708267dac5f9a76d2a57b07836c7ea68783a1a02bd6d94753ea80"
+
 [bundle.dotnet]
 description = "cdxgen with the .NET SDK it needs to restore packages.lock.json"
 # syft is here for SPDX. The native CycloneDX tools -- cyclonedx-gomod,

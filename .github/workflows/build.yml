@@ -208,8 +208,9 @@ jobs:
           mkdir -p dist
           VERSION=$(python3 -c "import json;print(json.load(open('php-release.json'))['php']['version'])")
           SHA=$(python3 -c "import json;print(json.load(open('php-release.json'))['php']['sha256'])")
-          echo "building php $VERSION"
-          docker run --rm -v "$PWD/dist:/out" alpine:3 sh -eu -c "
+          IMAGE=$(python3 -c "import json;b=json.load(open('php-release.json'))['builder'];print(b['image']+'@'+b['digest'])")
+          echo "building php $VERSION in $IMAGE"
+          docker run --rm -v "$PWD/dist:/out" "$IMAGE" sh -eu -c "
             apk add --no-cache build-base autoconf curl file re2c bison linux-headers \
               openssl-dev openssl-libs-static zlib-dev zlib-static binutils >/dev/null
             cd /tmp
@@ -253,10 +254,21 @@ jobs:
           fi
           # arm64 runs natively on the arm64 runner, so both can be executed.
           "./$BIN" --version
-          # iconv is the one Composer will not start without.
-          "./$BIN" -m | grep -qx iconv || { echo "::error::iconv missing" >&2; exit 1; }
-          "./$BIN" -m | grep -qx Phar || { echo "::error::phar missing" >&2; exit 1; }
-          "./$BIN" -m | grep -qx openssl || { echo "::error::openssl missing" >&2; exit 1; }
+          # Every module the configure line above enables on Composer's behalf,
+          # not a sample of them. The failure this catches is configure drift:
+          # a flag dropped or an alpine package gone missing still builds a
+          # working php, and the gap only shows up later as a Composer error
+          # inside a consumer's bundle, far from the change that caused it.
+          # Names as `php -m` prints them -- it is case-sensitive, and Phar is
+          # the one that is capitalised.
+          MODULES=$("./$BIN" -m)
+          for module in iconv Phar openssl zlib filter ctype tokenizer; do
+            if ! printf '%s\n' "$MODULES" | grep -qx "$module"; then
+              echo "::error::$module missing from the build" >&2
+              echo "$MODULES" >&2
+              exit 1
+            fi
+          done
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

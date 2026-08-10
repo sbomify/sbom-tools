@@ -361,13 +361,18 @@ def _executables(prefix: Path, bin_dirs: list[str]) -> set[str]:
     `provides` names ecosystems rather than executables -- the JVM bundle
     provides "maven", and the thing you run is "mvn" -- so a wrapper's
     fallback has to be checked against what is really in bin_dirs.
+
+    Files only. Directories carry the execute bit as a matter of course -- it
+    is what makes them traversable -- so counting anything +x would let a
+    subdirectory of bin/ pass as a command you could run. is_file() follows
+    symlinks, which is right: a symlinked executable is still executable.
     """
     found: set[str] = set()
     for directory in bin_dirs:
         candidate = prefix / directory
         if not candidate.is_dir():
             continue
-        found.update(entry.name for entry in candidate.iterdir() if os.access(entry, os.X_OK))
+        found.update(entry.name for entry in candidate.iterdir() if entry.is_file() and os.access(entry, os.X_OK))
     return found
 
 
@@ -417,12 +422,17 @@ def write_manifest(bundle: str, spec: dict, arch: str, prefix: Path, provides: l
         lines.append("# when one cannot. `tool` is the executable here that stands in for")
         lines.append("# the wrapper; `needs`, where present, is a path relative to the")
         lines.append("# project that the wrapper cannot bootstrap without.")
+        # Against the executables alone, never `provides`. `provides` names
+        # ecosystems, so accepting it would wave through the exact mistake
+        # this guard exists to catch: `tool = "maven"` is not runnable -- the
+        # command is `mvn` -- yet "maven" is in `provides`.
+        shipped = _executables(prefix, bin_dirs)
         for name in sorted(wrappers):
             declared = wrappers[name]
             for required in ("script", "tool"):
                 if not declared.get(required):
                     die(f"wrapper {name!r} in bundle {bundle!r} declares no {required}")
-            if declared["tool"] not in provides and declared["tool"] not in _executables(prefix, bin_dirs):
+            if declared["tool"] not in shipped:
                 die(f"wrapper {name!r} falls back to {declared['tool']!r}, which this bundle does not ship")
             lines.append("")
             lines.append(f"[wrappers.{name}]")

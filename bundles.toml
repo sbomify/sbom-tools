@@ -133,6 +133,39 @@ npm_install = true
 # Records the CycloneDX plugin versions in bundle.toml; see PLUGIN_PINS.
 build_plugins = true
 description = "cdxgen with the JDK, Maven, Gradle and sbt it shells out to"
+
+  # The build-tool wrappers a project may commit, and what to run instead when
+  # one of them cannot. A consumer prefers the project's wrapper -- projects
+  # pin a build-tool version for a reason, and the pinned one here often does
+  # not suit them -- but when the wrapper cannot run it has to know two things
+  # to recover: which of our tools stands in for it, and which file the
+  # wrapper cannot bootstrap without.
+  #
+  # Both are facts about this toolchain rather than about any consumer, and
+  # the same reasoning that moved the plugin pins here applies: a consumer
+  # that hardcodes "gradlew means gradle" is a second place describing this
+  # bundle, free to disagree with it. Teaching a new bundle about its own
+  # wrappers should not require changing anything downstream.
+  #
+  # `needs` exists because a wrapper script is small while the jar that does
+  # the work is a binary, and projects that refuse to commit binaries
+  # gitignore it and let the script fetch it on first run. That fetch shells
+  # out to curl. apache/kafka is the case in hand: no committed
+  # gradle-wrapper.jar, and a consumer without curl gets three "curl: not
+  # found" lines and then "Unable to access jarfile".
+  #
+  # Maven declares no `needs`: mvnw fails at run time instead, validating its
+  # own jar against the checksum in the project's maven-wrapper.properties and
+  # refusing when they disagree (apache/flink). Nothing checkable in advance,
+  # so there is nothing honest to put here.
+  [bundle.jvm.wrappers.gradle]
+  script = "gradlew"
+  tool = "gradle"
+  needs = "gradle/wrapper/gradle-wrapper.jar"
+
+  [bundle.jvm.wrappers.maven]
+  script = "mvnw"
+  tool = "mvn"
 # syft is here for SPDX. The native CycloneDX tools -- cyclonedx-gomod,
 # cargo-cyclonedx, the Maven/Gradle/sbt plugins -- emit CycloneDX and
 # nothing else, so a bundle without syft can serve only one of the two

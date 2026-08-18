@@ -3,6 +3,6 @@
   "private": true,
   "description": "Pins cdxgen where Dependabot can see it. Nothing is built from this; the bundle ships upstream's prebuilt binary, and this file exists so the version is visible to a bot rather than being a literal in bundles.toml.",
   "dependencies": {
-    "@cyclonedx/cdxgen": "12.8.2"
+    "@cyclonedx/cdxgen": "12.8.3"
   }
 }

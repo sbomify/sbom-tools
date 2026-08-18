@@ -17,6 +17,6 @@ buildscript {
         mavenCentral()
     }
     dependencies {
-        classpath "org.cyclonedx:cyclonedx-gradle-plugin:3.3.0"
+        classpath "org.cyclonedx:cyclonedx-gradle-plugin:3.4.1"
     }
 }

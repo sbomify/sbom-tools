@@ -8,6 +8,15 @@
 # alternative was `apt-get install` at run time, which needs root and pins
 # nothing.
 #
+# Four platforms: linux and darwin, amd64 and arm64. Darwin is here because the
+# tools are useful to a developer before they are useful to a pipeline -- a
+# consumer who wants to see what an SBOM of their project looks like, or why
+# the one CI produced is empty, should not have to get a container involved.
+# Each is built on a runner of its own kind rather than cross-compiled: Rust
+# and PHP cannot be cross-compiled to macOS without Apple's SDK, and the
+# binaries that could be are the ones whose smoke test is worth the least if it
+# cannot be executed.
+#
 # Where things land follows the release model:
 #
 #   push to master   the "tools-rolling" pre-release, replaced in place
@@ -72,21 +81,26 @@ jobs:
       - run: python scripts/check_digests.py
 
   build-go:
-    name: ${{ matrix.tool }} (${{ matrix.goarch }})
+    name: ${{ matrix.tool }} (${{ matrix.platform }})
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
-        # goarch is a real matrix dimension, so this is a 4x2 cross product.
-        # Written as bare `include` entries it was not: an include object whose
-        # keys are absent from the base matrix merges into every combination,
-        # so both entries applied to all four tools and the second simply
-        # overwrote the first. Only arm64 was ever built.
+        # platform is a real matrix dimension, so this is a 5x4 cross product,
+        # and the include entries only fill in the four combinations whose
+        # platform they name. Written as bare `include` entries it was not: an
+        # include object whose keys are absent from the base matrix merges into
+        # every combination, so each entry applied to all five tools and the
+        # last simply overwrote the rest. Only one architecture was ever built.
         tool: [syft, cosign, crane, cyclonedx-gomod, cdxgen-launcher]
-        goarch: [amd64, arm64]
+        platform: [linux-amd64, linux-arm64, darwin-amd64, darwin-arm64]
         include:
-          - { goarch: amd64, runner: ubuntu-latest }
-          - { goarch: arm64, runner: ubuntu-24.04-arm }
+          - { platform: linux-amd64, goos: linux, goarch: amd64, runner: ubuntu-latest }
+          - { platform: linux-arm64, goos: linux, goarch: arm64, runner: ubuntu-24.04-arm }
+          # macos-15 is the arm64 image and macos-15-intel the x64 one; both
+          # are standard runners, so both are free for a public repository.
+          - { platform: darwin-amd64, goos: darwin, goarch: amd64, runner: macos-15-intel }
+          - { platform: darwin-arm64, goos: darwin, goarch: arm64, runner: macos-15 }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -124,7 +138,7 @@ jobs:
       - name: Build
         env:
           CGO_ENABLED: "0"
-          GOOS: linux
+          GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: |
           mkdir -p dist
@@ -140,19 +154,18 @@ jobs:
           # -trimpath keeps runner paths out of the binary, so the build does
           # not depend on where it happened.
           go build -trimpath -ldflags="$LDFLAGS" \
-            -o "dist/${{ matrix.tool }}-linux-${{ matrix.goarch }}" "${{ steps.pin.outputs.pkg }}"
+            -o "dist/${{ matrix.tool }}-${{ matrix.platform }}" "${{ steps.pin.outputs.pkg }}"
+
+      # Assert it, do not assume it: a binary that loads something from the
+      # build machine works on the runner and fails in a distroless container
+      # or on a Mac without Homebrew.
+      - uses: ./.github/actions/assert-self-contained
+        with:
+          path: dist/${{ matrix.tool }}-${{ matrix.platform }}
 
       - name: Smoke test
         run: |
-          BIN="dist/${{ matrix.tool }}-linux-${{ matrix.goarch }}"
-          test -x "$BIN"
-          # Assert it, do not assume it: a dynamically linked binary would
-          # work on the runner and fail in a distroless or musl container.
-          file "$BIN"
-          if ! file "$BIN" | grep -qE "statically linked|static-pie linked"; then
-            echo "::error::$BIN is not statically linked" >&2
-            exit 1
-          fi
+          BIN="dist/${{ matrix.tool }}-${{ matrix.platform }}"
           if [ "${{ matrix.tool }}" = "cdxgen-launcher" ]; then
             # The launcher has no version of its own to print: it execs the
             # bun sitting beside it in an assembled bundle, and outside one
@@ -172,37 +185,51 @@ jobs:
               *) echo "::error::$BIN failed without the expected diagnostic" >&2; exit 1 ;;
             esac
           else
+            # Every platform runs natively on a runner of its own kind, so
+            # this executes the binary rather than merely inspecting it.
             "$BIN" version || "$BIN" --version
           fi
-          sha256sum "$BIN" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: tool-${{ matrix.tool }}-${{ matrix.goarch }}
-          path: dist/${{ matrix.tool }}-linux-${{ matrix.goarch }}
+          name: tool-${{ matrix.tool }}-${{ matrix.platform }}
+          path: dist/${{ matrix.tool }}-${{ matrix.platform }}
           if-no-files-found: error
 
   build-php:
-    name: php (${{ matrix.goarch }})
+    name: php (${{ matrix.platform }})
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
+        platform: [linux-amd64, linux-arm64, darwin-amd64, darwin-arm64]
         include:
-          - { goarch: amd64, runner: ubuntu-latest }
-          - { goarch: arm64, runner: ubuntu-24.04-arm }
+          - { platform: linux-amd64, runner: ubuntu-latest }
+          - { platform: linux-arm64, runner: ubuntu-24.04-arm }
+          - { platform: darwin-amd64, runner: macos-15-intel }
+          - { platform: darwin-arm64, runner: macos-15 }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # Compiled rather than downloaded because php.net publishes no Linux
-      # binaries -- only source. The alternative was a third party's static
-      # build, which would have been the only component here not coming from
-      # its own vendor.
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
+      # Compiled rather than downloaded because php.net publishes no binaries
+      # at all -- only source -- for either system. The alternative was a third
+      # party's static build, which would have been the only component here not
+      # coming from its own vendor.
+      #
+      # Two build steps rather than one with branches inside it, because the
+      # two have almost nothing in common beyond the configure line: one needs
+      # a container to get a different libc, the other needs Apple's SDK and
+      # cannot have a container at all.
       #
       # Inside Alpine so it links against musl, which is what makes the result
       # static-pie and therefore relocatable into any container. Building on
       # the runner's glibc would produce a binary tied to that glibc.
-      - name: Build PHP from the pinned php.net release
+      - name: Build PHP from the pinned php.net release (Linux, in Alpine)
+        if: runner.os == 'Linux'
         run: |
           set -euo pipefail
           mkdir -p dist
@@ -238,27 +265,86 @@ jobs:
             # dropped and yields a dynamically linked binary.
             make -j\"\$(nproc)\" LDFLAGS=-all-static >/dev/null
             strip sapi/cli/php
-            cp sapi/cli/php /out/php-linux-${{ matrix.goarch }}
+            cp sapi/cli/php /out/php-${{ matrix.platform }}
           "
+
+      # macOS cannot do any of the above: there is no container to build in,
+      # and nothing to gain from one -- the libc a Mac binary links against is
+      # the one Apple ships, and every Mac has it. So this is a plain native
+      # build against the SDK, with one thing to arrange.
+      #
+      # OpenSSL is the exception. macOS has no usable OpenSSL for a build to
+      # link against -- the system libraries are private and the headers were
+      # removed years ago -- while php's openssl extension, which is what lets
+      # Composer reach packagist over HTTPS, needs one. Homebrew's keg carries
+      # libssl.a and libcrypto.a, so passing those explicitly links OpenSSL
+      # into the binary rather than leaving a reference to /opt/homebrew that
+      # no consumer's Mac can resolve. OPENSSL_LIBS and OPENSSL_CFLAGS are the
+      # documented pkg-config overrides, so configure takes them verbatim
+      # instead of asking pkg-config for the dylib.
+      #
+      # -all-static has no counterpart here: Apple ships no libSystem.a and the
+      # linker refuses -static, so a Mach-O binary cannot be fully static. The
+      # achievable form of the same property -- load nothing but the OS -- is
+      # what assert-self-contained checks below.
+      - name: Build PHP from the pinned php.net release (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          VERSION=$(python3 -c "import json;print(json.load(open('php-release.json'))['php']['version'])")
+          SHA=$(python3 -c "import json;print(json.load(open('php-release.json'))['php']['sha256'])")
+          brew install --quiet openssl@3
+          OPENSSL=$(brew --prefix openssl@3)
+          echo "building php $VERSION against $(xcrun --show-sdk-version) SDK, openssl from $OPENSSL"
+          WORK=$(mktemp -d)
+          cd "$WORK"
+          curl -sSLo php.tar.gz "https://www.php.net/distributions/php-$VERSION.tar.gz"
+          echo "$SHA  php.tar.gz" | shasum -a 256 -c -
+          tar xzf php.tar.gz
+          cd "php-$VERSION"
+          # The SDK's zlib.pc, so --with-zlib resolves against the system zlib
+          # rather than whatever Homebrew happens to have installed.
+          export PKG_CONFIG_PATH="$(xcrun --show-sdk-path)/usr/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+          export OPENSSL_CFLAGS="-I$OPENSSL/include"
+          export OPENSSL_LIBS="$OPENSSL/lib/libssl.a $OPENSSL/lib/libcrypto.a"
+          # The same extension set as the Linux build above, for the same
+          # reasons -- only what Composer needs to run and resolve. Keeping the
+          # two lines identical is the point: a php that answers differently on
+          # a Mac would make the bundle's SBOM depend on where it was produced.
+          ./configure \
+            --disable-all --disable-cgi --disable-phpdbg --enable-cli \
+            --enable-phar --enable-filter --enable-ctype --enable-tokenizer \
+            --with-iconv --with-openssl --with-zlib --without-pear \
+            --enable-static --disable-shared >/dev/null
+          make -j"$(sysctl -n hw.ncpu)" >/dev/null
+          # strip rewrites the file and so invalidates the ad-hoc signature
+          # ld64 put there, which on arm64 means the binary stops being
+          # runnable at all. Re-sign rather than skip the strip: the symbol
+          # table is several MB in a bundle whose size is the first thing
+          # anyone notices.
+          strip sapi/cli/php
+          codesign --force --sign - sapi/cli/php
+          cp sapi/cli/php "$GITHUB_WORKSPACE/dist/php-${{ matrix.platform }}"
+
+      - uses: ./.github/actions/assert-self-contained
+        with:
+          path: dist/php-${{ matrix.platform }}
 
       - name: Smoke test
         run: |
-          BIN="dist/php-linux-${{ matrix.goarch }}"
-          test -x "$BIN"
-          # Assert it, do not assume it: a dynamically linked binary would work
-          # on the runner and fail in the container the bundle is unpacked into.
-          file "$BIN"
-          if ! file "$BIN" | grep -qE "statically linked|static-pie linked"; then
-            echo "::error::$BIN is not statically linked" >&2
-            exit 1
-          fi
-          # arm64 runs natively on the arm64 runner, so both can be executed.
+          BIN="dist/php-${{ matrix.platform }}"
+          # Every platform is built on a runner of its own kind, so all four
+          # can be executed rather than only inspected.
           "./$BIN" --version
-          # Every module the configure line above enables on Composer's behalf,
+          # Every module the configure lines above enable on Composer's behalf,
           # not a sample of them. The failure this catches is configure drift:
-          # a flag dropped or an alpine package gone missing still builds a
-          # working php, and the gap only shows up later as a Composer error
-          # inside a consumer's bundle, far from the change that caused it.
+          # a flag dropped, an alpine package gone missing, a Homebrew keg
+          # renamed -- each still builds a working php, and the gap only shows
+          # up later as a Composer error inside a consumer's bundle, far from
+          # the change that caused it. It also keeps the two builds honest
+          # about each other: one platform quietly losing openssl is a php that
+          # cannot reach packagist, on that platform only.
           # Names as `php -m` prints them -- it is case-sensitive, and Phar is
           # the one that is capitalised.
           MODULES=$("./$BIN" -m)
@@ -272,25 +358,37 @@ jobs:
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: tool-php-${{ matrix.goarch }}
-          path: dist/php-linux-${{ matrix.goarch }}
+          name: tool-php-${{ matrix.platform }}
+          path: dist/php-${{ matrix.platform }}
           if-no-files-found: error
 
   build-rust:
-    name: cargo-cyclonedx (${{ matrix.goarch }})
+    name: cargo-cyclonedx (${{ matrix.platform }})
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
+        platform: [linux-amd64, linux-arm64, darwin-amd64, darwin-arm64]
         include:
-          - { goarch: amd64, runner: ubuntu-latest, target: x86_64-unknown-linux-musl }
-          - { goarch: arm64, runner: ubuntu-24.04-arm, target: aarch64-unknown-linux-musl }
+          - { platform: linux-amd64, runner: ubuntu-latest, target: x86_64-unknown-linux-musl }
+          - { platform: linux-arm64, runner: ubuntu-24.04-arm, target: aarch64-unknown-linux-musl }
+          # No musl counterpart, and none wanted: a Mac binary links against
+          # the libSystem Apple ships, which is the one every Mac has.
+          - { platform: darwin-amd64, runner: macos-15-intel, target: x86_64-apple-darwin }
+          - { platform: darwin-arm64, runner: macos-15, target: aarch64-apple-darwin }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
       # musl-tools supplies the linker; rust-toolchain.toml pins the compiler
-      # and both musl targets, which rustup installs on first use.
+      # and all four targets, which rustup installs on first use. macOS needs
+      # nothing equivalent -- the Xcode command line tools on the image already
+      # supply the linker for its own target.
       - name: Install the musl toolchain
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends musl-tools
@@ -302,8 +400,8 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: cargo-${{ matrix.goarch }}-${{ hashFiles('Cargo.lock') }}
-          restore-keys: cargo-${{ matrix.goarch }}-
+          key: cargo-${{ matrix.platform }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-${{ matrix.platform }}-
 
       - name: Resolve the pinned version
         id: pin
@@ -329,44 +427,41 @@ jobs:
           cargo install cargo-cyclonedx \
             --version "${{ steps.pin.outputs.version }}" --locked \
             --target "${{ matrix.target }}" --root ./cargo-out
-          cp cargo-out/bin/cargo-cyclonedx "dist/cargo-cyclonedx-linux-${{ matrix.goarch }}"
+          cp cargo-out/bin/cargo-cyclonedx "dist/cargo-cyclonedx-${{ matrix.platform }}"
+
+      - uses: ./.github/actions/assert-self-contained
+        with:
+          path: dist/cargo-cyclonedx-${{ matrix.platform }}
 
       - name: Smoke test
         run: |
-          BIN="dist/cargo-cyclonedx-linux-${{ matrix.goarch }}"
-          test -x "$BIN"
-          # Assert it, do not assume it: a dynamically linked binary would
-          # work on the runner and fail in a distroless or musl container.
-          file "$BIN"
-          if ! file "$BIN" | grep -qE "statically linked|static-pie linked"; then
-            echo "::error::$BIN is not statically linked" >&2
-            exit 1
-          fi
+          BIN="dist/cargo-cyclonedx-${{ matrix.platform }}"
           # A cargo subcommand: run directly it still wants the subcommand
           # name as argv[1], exactly as the action invokes it. Plain
           # `--version` gets parsed as a cargo command and exits 2.
           "$BIN" cyclonedx --help >/dev/null
-          sha256sum "$BIN" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: tool-cargo-cyclonedx-${{ matrix.goarch }}
-          path: dist/cargo-cyclonedx-linux-${{ matrix.goarch }}
+          name: tool-cargo-cyclonedx-${{ matrix.platform }}
+          path: dist/cargo-cyclonedx-${{ matrix.platform }}
           if-no-files-found: error
 
   # The bundles are the published artifact, so they are what gets attested:
   # one signature over the thing a consumer actually downloads, rather than
   # over a binary that is only an ingredient.
   assemble:
-    name: bundle ${{ matrix.bundle }} (${{ matrix.arch }})
+    name: bundle ${{ matrix.bundle }} (${{ matrix.platform }})
     needs: [prepare-rolling, build-go, build-rust, build-php]
     if: always() && needs.build-go.result == 'success' && needs.build-rust.result == 'success'
       && needs.build-php.result == 'success'
-    # Assembled on the architecture being assembled for. Building arm64 on an
+    # Assembled on the platform being assembled for. Building arm64 on an
     # amd64 runner meant the pinned bun in the prefix could not be executed, so
     # the cdxgen install had to borrow a second, unpinned bun from the host --
     # and it left the "runs unpacked" check skipped for every arm64 bundle,
-    # which is half of what we publish.
+    # which was half of what we published. The same argument now covers the
+    # operating system: a darwin bundle's bun has to run to populate
+    # node_modules, and only a Mac can run it.
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: write
@@ -376,16 +471,24 @@ jobs:
       fail-fast: false
       matrix:
         bundle: [go, rust, jvm, dotnet, php, cdxgen, syft, sigstore]
-        arch: [amd64, arm64]
+        platform: [linux-amd64, linux-arm64, darwin-amd64, darwin-arm64]
         include:
-          - { arch: amd64, runner: ubuntu-latest }
-          - { arch: arm64, runner: ubuntu-24.04-arm }
+          - { platform: linux-amd64, os: linux, arch: amd64, runner: ubuntu-latest }
+          - { platform: linux-arm64, os: linux, arch: arm64, runner: ubuntu-24.04-arm }
+          - { platform: darwin-amd64, os: darwin, arch: amd64, runner: macos-15-intel }
+          - { platform: darwin-arm64, os: darwin, arch: arm64, runner: macos-15 }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # The script reads bundles.toml, so it needs a Python with tomllib. The
+      # macOS images ship a python3 whose version is not ours to choose.
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: tool-*-${{ matrix.arch }}
+          pattern: tool-*-${{ matrix.platform }}
           path: dist
           merge-multiple: true
 
@@ -409,18 +512,21 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/sbom-tools/downloads
-          key: vendor-${{ matrix.bundle }}-${{ matrix.arch }}-${{ hashFiles('bundles.toml') }}
-          restore-keys: vendor-${{ matrix.bundle }}-${{ matrix.arch }}-
+          key: vendor-${{ matrix.bundle }}-${{ matrix.platform }}-${{ hashFiles('bundles.toml') }}
+          restore-keys: vendor-${{ matrix.bundle }}-${{ matrix.platform }}-
 
       - name: Assemble
-        run: python3 scripts/assemble_bundle.py --bundle ${{ matrix.bundle }} --arch ${{ matrix.arch }}
+        run: |
+          python3 scripts/assemble_bundle.py --bundle ${{ matrix.bundle }} \
+            --os ${{ matrix.os }} --arch ${{ matrix.arch }}
 
       - name: Verify it runs unpacked, as a plain user
         run: |
+          ARCHIVE="out/${{ matrix.bundle }}-${{ matrix.platform }}.tar.gz"
           PREFIX=$(mktemp -d)
-          tar xzf "out/${{ matrix.bundle }}-linux-${{ matrix.arch }}.tar.gz" -C "$PREFIX"
+          tar xzf "$ARCHIVE" -C "$PREFIX"
           test -f "$PREFIX/bundle.toml"
-          # Both architectures now, because the runner matches the arch being
+          # Every platform now, because the runner matches the one being
           # built. HOME=/ is unwritable, which is the case that broke the old
           # design: every tool must keep its caches inside the prefix.
           for bin in "$PREFIX"/bin/*; do
@@ -428,13 +534,18 @@ jobs:
               || env -i HOME=/ PATH="$PREFIX/bin:/usr/bin:/bin" "$bin" version >/dev/null 2>&1 \
               || echo "note: $(basename "$bin") has no version flag"
           done
-          sha256sum "out/${{ matrix.bundle }}-linux-${{ matrix.arch }}.tar.gz" | tee -a "$GITHUB_STEP_SUMMARY"
+          # macOS has no sha256sum.
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "$ARCHIVE" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            shasum -a 256 "$ARCHIVE" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Attest build provenance
         id: attest
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v2.2.4.2.2
         with:
-          subject-path: out/${{ matrix.bundle }}-linux-${{ matrix.arch }}.tar.gz
+          subject-path: out/${{ matrix.bundle }}-${{ matrix.platform }}.tar.gz
 
       # Published next to the bundle it describes. GitHub keeps a copy behind
       # its attestations API, but that is not a usable fetch path: the bundle
@@ -442,7 +553,7 @@ jobs:
       # binary framing, and depending on an unversioned internal format to
       # verify a supply chain is not a trade worth making.
       - name: Stage the attestation bundle
-        run: cp "${{ steps.attest.outputs.bundle-path }}" "out/${{ matrix.bundle }}-linux-${{ matrix.arch }}.tar.gz.sigstore.json"
+        run: cp "${{ steps.attest.outputs.bundle-path }}" "out/${{ matrix.bundle }}-${{ matrix.platform }}.tar.gz.sigstore.json"
 
       - name: Publish
         env:
@@ -454,5 +565,5 @@ jobs:
             TAG="tools-rolling"
           fi
           gh release upload "$TAG" \
-            "out/${{ matrix.bundle }}-linux-${{ matrix.arch }}.tar.gz" \
-            "out/${{ matrix.bundle }}-linux-${{ matrix.arch }}.tar.gz.sigstore.json" --clobber
+            "out/${{ matrix.bundle }}-${{ matrix.platform }}.tar.gz" \
+            "out/${{ matrix.bundle }}-${{ matrix.platform }}.tar.gz.sigstore.json" --clobber

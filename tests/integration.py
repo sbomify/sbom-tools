@@ -14,7 +14,7 @@ and checks the result is worth having. A zero-component SBOM is not an error
 to any of these tools -- it validates and uploads and looks like success --
 which is why every project has a floor rather than just an exit code.
 
-    python tests/integration.py [--bundle jvm] [--project maven] [--dir DIR]
+    python tests/integration.py [--bundle jvm] [--os darwin] [--project maven]
 
 Bundles are taken from --dir if present (a local `out/`), otherwise downloaded
 from the tools-rolling pre-release.
@@ -50,17 +50,27 @@ class Bundle:
     """An unpacked bundle, described by its own bundle.toml."""
 
     name: str
+    platform: str
     prefix: Path
     bin_dirs: list[str] = field(default_factory=list)
     env: dict[str, str] = field(default_factory=dict)
 
     @classmethod
-    def load(cls, name: str, prefix: Path) -> Bundle:
+    def load(cls, name: str, platform: str, prefix: Path) -> Bundle:
         body = tomllib.loads((prefix / "bundle.toml").read_text())
+        described = body.get("bundle", {})
+        # The archive says which platform it is for, so check it rather than
+        # trusting the file name. Running a linux bundle's tools on macOS
+        # fails with "cannot execute binary file", which reads like a broken
+        # build; running the wrong arch under emulation can even half-work.
+        stamped = f"{described.get('os', 'linux')}-{described.get('arch', '')}"
+        if stamped != platform:
+            raise RuntimeError(f"{prefix}: bundle.toml describes {stamped}, not {platform}")
         return cls(
             name=name,
+            platform=platform,
             prefix=prefix,
-            bin_dirs=[str(d) for d in (body.get("bundle", {}).get("bin_dirs") or ["bin"])],
+            bin_dirs=[str(d) for d in (described.get("bin_dirs") or ["bin"])],
             env={k: str(v).replace("{prefix}", str(prefix)) for k, v in (body.get("env") or {}).items()},
         )
 
@@ -84,18 +94,24 @@ class Bundle:
         }
 
 
-def fetch_bundle(name: str, arch: str, local: Path | None) -> Bundle:
-    """Unpack a bundle, preferring a locally built one."""
-    prefix = CACHE / "bundles" / f"{name}-{arch}"
-    if (prefix / "bundle.toml").exists():
-        return Bundle.load(name, prefix)
+def fetch_bundle(name: str, platform: str, local: Path | None) -> Bundle:
+    """Unpack a bundle, preferring a locally built one.
 
-    archive = CACHE / f"{name}-linux-{arch}.tar.gz"
+    A bundle holds binaries for one platform and nothing else, so the harness
+    has to be told which one to fetch rather than inferring it: a darwin-arm64
+    run on an amd64 Mac is a mistake worth a clear failure, not a silent
+    substitution.
+    """
+    prefix = CACHE / "bundles" / f"{name}-{platform}"
+    if (prefix / "bundle.toml").exists():
+        return Bundle.load(name, platform, prefix)
+
+    archive = CACHE / f"{name}-{platform}.tar.gz"
     if local and (local / archive.name).exists():
         archive = local / archive.name
         log(f"  using local {archive.name}")
     elif not archive.exists():
-        url = f"{RELEASE_BASE}/tools-rolling/{name}-linux-{arch}.tar.gz"
+        url = f"{RELEASE_BASE}/tools-rolling/{name}-{platform}.tar.gz"
         log(f"  downloading {name} bundle")
         archive.parent.mkdir(parents=True, exist_ok=True)
         with urllib.request.urlopen(url, timeout=600) as response:  # noqa: S310
@@ -104,7 +120,7 @@ def fetch_bundle(name: str, arch: str, local: Path | None) -> Bundle:
     prefix.mkdir(parents=True, exist_ok=True)
     with tarfile.open(archive) as tar:
         tar.extractall(prefix)  # noqa: S202 - our own published artifact
-    return Bundle.load(name, prefix)
+    return Bundle.load(name, platform, prefix)
 
 
 def clone(repo: str, ref: str) -> Path:
@@ -382,8 +398,8 @@ def generator_for(project: str, fmt: str, bundle: str = ""):
     return generate_cdxgen, "cdxgen"
 
 
-def run_case(name: str, spec: dict, fmt: str, local: Path | None, arch: str) -> tuple[str, int | None, int, bool, float]:
-    bundle = fetch_bundle(spec["bundle"], arch, local)
+def run_case(name: str, spec: dict, fmt: str, local: Path | None, platform: str) -> tuple[str, int | None, int, bool, float]:
+    bundle = fetch_bundle(spec["bundle"], platform, local)
     source = clone(spec["repo"], spec["ref"])
     if spec.get("subdir"):
         source = source / spec["subdir"]
@@ -430,10 +446,12 @@ def main() -> int:
     parser.add_argument("--bundle", help="only projects served by this bundle")
     parser.add_argument("--project", help="only this project")
     parser.add_argument("--format", choices=("cyclonedx", "spdx"), help="only this format")
+    parser.add_argument("--os", dest="target_os", default="linux", choices=("linux", "darwin"))
     parser.add_argument("--arch", default="amd64", choices=("amd64", "arm64"))
     parser.add_argument("--dir", type=Path, help="directory holding locally built bundles")
     args = parser.parse_args()
 
+    platform = f"{args.target_os}-{args.arch}"
     formats = [args.format] if args.format else ["cyclonedx", "spdx"]
     selected = {
         n: s for n, s in PROJECTS.items()
@@ -444,12 +462,13 @@ def main() -> int:
         return 1
 
     CACHE.mkdir(parents=True, exist_ok=True)
+    log(f"platform {platform}")
     log(f"{'project':<14}{'bundle':<9}{'format':<11}{'generator':<12}{'count':>7}{'floor':>7}{'purl%':>7}  verdict")
     log("-" * 83)
     failures = 0
     for name, spec in selected.items():
         for fmt in formats:
-            label, count, floor, ok, purls = run_case(name, spec, fmt, args.dir, args.arch)
+            label, count, floor, ok, purls = run_case(name, spec, fmt, args.dir, platform)
             if not ok:
                 failures += 1
             log(f"{name:<14}{spec['bundle']:<9}{fmt:<11}{label:<12}"

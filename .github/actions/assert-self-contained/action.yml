@@ -1,0 +1,78 @@
+---
+# Refuse a binary that depends on anything the bundle does not carry.
+#
+# A bundle unpacks into an arbitrary container or onto an arbitrary Mac and
+# runs from there, so a link against something outside it is a dependency the
+# consumer cannot satisfy and we cannot see. Every build job here asserts it
+# rather than assuming it, because the failure is invisible on the machine that
+# produced the binary: it links fine, runs fine, and dies in a distroless image
+# or on a laptop without Homebrew.
+#
+# The property is one property, but the two systems state it differently, which
+# is why this is a step rather than a line of shell copied into each job.
+name: Assert a built binary is self-contained
+description: Refuse a binary that loads anything the consumer would have to install.
+
+inputs:
+  path:
+    description: The binary to check.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        BIN: ${{ inputs.path }}
+      run: |
+        set -euo pipefail
+        test -x "$BIN"
+        file "$BIN"
+        case "$(uname -s)" in
+          Linux)
+            # Fully static: no interpreter to find, no libc version to satisfy.
+            if ! file "$BIN" | grep -qE "statically linked|static-pie linked"; then
+              echo "::error::$BIN is not statically linked" >&2
+              exit 1
+            fi
+            ;;
+          Darwin)
+            # macOS has no static libSystem -- Apple ships no libc.a and the
+            # linker refuses -static -- so "statically linked" is not a state a
+            # Mach-O binary can be in. The achievable form of the same property
+            # is that everything it loads comes from the OS, which every Mac
+            # has by definition. A /opt/homebrew or /usr/local path here is the
+            # real failure this catches: that is how a build machine's Homebrew
+            # leaks into an artifact that then dies on a consumer's Mac.
+            otool -L "$BIN"
+            otool -L "$BIN" | tail -n +2 | awk '{print $1}' | while read -r lib; do
+              [ -n "$lib" ] || continue
+              case "$lib" in
+                /usr/lib/*|/System/Library/*) ;;
+                *)
+                  echo "::error::$BIN loads $lib, which is not part of macOS" >&2
+                  exit 1
+                  ;;
+              esac
+            done
+            # arm64 will not execute an unsigned binary at all, so a missing
+            # signature is not a cosmetic problem. Go ad-hoc signs what it
+            # links and so does ld64, but anything that rewrites the file
+            # afterwards -- strip, install_name_tool -- invalidates it, and the
+            # only honest way to know is to ask.
+            if [ "$(uname -m)" = "arm64" ]; then
+              codesign --verify "$BIN"
+            fi
+            ;;
+          *)
+            echo "::error::unsupported build host $(uname -s)" >&2
+            exit 1
+            ;;
+        esac
+        # The digest, in the run summary, so a published artifact can be traced
+        # back to the job that produced it. macOS has no sha256sum.
+        if command -v sha256sum >/dev/null 2>&1; then
+          sha256sum "$BIN" | tee -a "$GITHUB_STEP_SUMMARY"
+        else
+          shasum -a 256 "$BIN" | tee -a "$GITHUB_STEP_SUMMARY"
+        fi

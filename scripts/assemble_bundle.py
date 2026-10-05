@@ -17,7 +17,7 @@ of the bundle's shape. Adding an ecosystem therefore changes nothing on the
 consumer side.
 
 Usage:
-    assemble_bundle.py --bundle rust --arch amd64 --built-dir dist --out out
+    assemble_bundle.py --bundle rust --os linux --arch amd64 --built-dir dist
 """
 
 from __future__ import annotations
@@ -36,9 +36,23 @@ import zipfile
 import tomllib
 import urllib.request
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
 CHUNK = 1 << 20
+
+#: Every platform a bundle is published for, as "<os>-<arch>".
+#:
+#: The operating system is a real dimension rather than a detail of the
+#: architecture: a vendor ships a different artifact for each, the digest
+#: beside it is what makes the download safe, and the two systems disagree
+#: about what "self-contained" even means -- Linux bundles carry statically
+#: linked binaries, while macOS has no static libSystem and settles for
+#: binaries that load nothing but the OS. bundles.toml is keyed on these
+#: strings and so are the names of everything published.
+OSES = ("linux", "darwin")
+ARCHES = ("amd64", "arm64")
+PLATFORMS = tuple(f"{os_}-{arch}" for os_ in OSES for arch in ARCHES)
 
 
 def _version_from_go_toolchain(path: Path) -> str:
@@ -103,6 +117,22 @@ def resolve_version(spec: dict) -> str:
     return reader(path, source)  # type: ignore[misc]
 
 
+def component_setting(spec: dict, platform: str, key: str, default: Any = None) -> Any:
+    """One of a component's settings, which a platform may override.
+
+    Most are the same wherever the component is unpacked -- `into`, `kind`,
+    `strip_container` -- and belong on the component. A few are facts about
+    the vendor's archive rather than about the bundle, and vendors differ:
+    Temurin wraps its macOS tree in Contents/Home, so that platform sets its
+    own `payload` and the bundle still ends up with jdk/bin. Overriding beats
+    a second component that is the same component.
+    """
+    per_platform = spec.get(platform) or {}
+    if key in per_platform:
+        return per_platform[key]
+    return spec.get(key, default)
+
+
 def die(message: str) -> None:
     print(f"error: {message}", file=sys.stderr)
     raise SystemExit(1)
@@ -111,10 +141,10 @@ def die(message: str) -> None:
 #: Where verified downloads are kept between runs.
 #:
 #: Every bundle pulls its toolchain from the vendor -- a 190MB JDK, a .NET SDK
-#: larger than that, Go, Rust, Gradle, Maven, sbt, bun -- and CI assembles
-#: fourteen bundles. Without this each job fetched all of it again from the
-#: vendor's CDN on every build, for artifacts pinned to an exact digest and
-#: therefore incapable of changing.
+#: larger than that, Go, Rust, Gradle, Maven, sbt, bun -- and CI assembles one
+#: archive per bundle and platform. Without this each job fetched all of it
+#: again from the vendor's CDN on every build, for artifacts pinned to an exact
+#: digest and therefore incapable of changing.
 DOWNLOAD_CACHE = Path(
     os.environ.get("SBOM_TOOLS_DOWNLOAD_CACHE", Path.home() / ".cache" / "sbom-tools" / "downloads")
 )
@@ -211,35 +241,38 @@ def strip_container(directory: Path) -> None:
     holding.rename(directory)
 
 
-def add_upstream(name: str, spec: dict, arch: str, prefix: Path, scratch: Path) -> None:
+def add_upstream(name: str, spec: dict, platform: str, prefix: Path, scratch: Path) -> None:
     """Fetch one pinned upstream component into the bundle prefix."""
-    per_arch = spec.get(arch)
-    if not per_arch:
-        die(f"{name}: no asset for {arch}")
-    algorithm = next((a for a in ("sha256", "sha512") if a in per_arch), "")
+    per_platform = spec.get(platform)
+    if not per_platform:
+        die(f"{name}: no asset for {platform}")
+    algorithm = next((a for a in ("sha256", "sha512") if a in per_platform), "")
     if not algorithm:
-        die(f"{name}/{arch}: needs a sha256 or sha512")
+        die(f"{name}/{platform}: needs a sha256 or sha512")
+
+    def setting(key: str, default: Any = None) -> Any:
+        return component_setting(spec, platform, key, default)
 
     # {version} in a URL follows the manifest the version came from, so a
     # Dependabot bump reaches the download instead of leaving it pointing at
     # the old release with a digest that no longer matches.
-    url = str(per_arch["url"]).replace("{version}", resolve_version(spec))
-    if spec.get("kind") == "raw":
+    url = str(per_platform["url"]).replace("{version}", resolve_version(spec))
+    if setting("kind") == "raw":
         # A bare executable, e.g. cdxgen's single-file build.
-        target = prefix / "bin" / spec.get("bin_name", name)
+        target = prefix / "bin" / setting("bin_name", name)
         target.parent.mkdir(parents=True, exist_ok=True)
-        download_verified(url, algorithm, per_arch[algorithm], target)
+        download_verified(url, algorithm, per_platform[algorithm], target)
         target.chmod(0o755)
         return
 
     archive = scratch / url.rsplit("/", 1)[-1]
-    download_verified(url, algorithm, per_arch[algorithm], archive)
+    download_verified(url, algorithm, per_platform[algorithm], archive)
     staging = scratch / f"unpack-{name}"
     safe_extract(archive, staging)
-    if spec.get("strip_container"):
+    if setting("strip_container"):
         strip_container(staging)
 
-    if keep := spec.get("keep"):
+    if keep := setting("keep"):
         # Some distributions are mostly things the bundle will never use --
         # Node ships 84MB of headers and npm alongside the interpreter. Keep
         # the named paths and drop the rest.
@@ -253,7 +286,7 @@ def add_upstream(name: str, spec: dict, arch: str, prefix: Path, scratch: Path) 
             else:
                 entry.unlink(missing_ok=True)
 
-    if payload := spec.get("payload"):
+    if payload := setting("payload"):
         # A Rust dist tarball is an installer, not a tree to unpack: under the
         # version-named wrapper it carries the component itself (cargo/,
         # rustc/) alongside install.sh, components, git-commit-info and the
@@ -266,9 +299,9 @@ def add_upstream(name: str, spec: dict, arch: str, prefix: Path, scratch: Path) 
             die(f"{name}: expected payload directory {payload!r} in the archive")
         staging = inner
 
-    into = prefix / spec["into"] if spec.get("into") else prefix
+    into = prefix / setting("into") if setting("into") else prefix
     into.mkdir(parents=True, exist_ok=True)
-    excluded = set(spec.get("exclude") or ())
+    excluded = set(setting("exclude") or ())
     for entry in staging.iterdir():
         if entry.name in excluded:
             continue
@@ -376,8 +409,9 @@ def _executables(prefix: Path, bin_dirs: list[str]) -> set[str]:
     return found
 
 
-def write_manifest(bundle: str, spec: dict, arch: str, prefix: Path, provides: list[str]) -> None:
+def write_manifest(bundle: str, spec: dict, platform: str, prefix: Path, provides: list[str]) -> None:
     """Describe the bundle to whoever unpacks it."""
+    target_os, arch = platform.split("-", 1)
     # Every directory holding executables, not just the top one. A JDK
     # keeps java in jdk/bin and Maven keeps mvn in maven/bin, so a single
     # bin_subdir would advertise cdxgen and hide the two tools it shells
@@ -387,12 +421,13 @@ def write_manifest(bundle: str, spec: dict, arch: str, prefix: Path, provides: l
         # An explicit bin_dir wins: the .NET SDK puts its executable at the
         # root of its payload rather than under bin/, so deriving "<into>/bin"
         # found nothing and dotnet never reached PATH.
-        if declared := component.get("bin_dir"):
+        if declared := component_setting(component, platform, "bin_dir"):
             if (prefix / str(declared)).is_dir():
                 extra.add(str(declared))
             continue
-        if component.get("into") and (prefix / component["into"] / "bin").is_dir():
-            extra.add(f"{component['into']}/bin")
+        into = component_setting(component, platform, "into")
+        if into and (prefix / str(into) / "bin").is_dir():
+            extra.add(f"{into}/bin")
     bin_dirs = ["bin"] + sorted(extra)
     lines = [
         "# Written by scripts/assemble_bundle.py. Read this rather than",
@@ -400,6 +435,10 @@ def write_manifest(bundle: str, spec: dict, arch: str, prefix: Path, provides: l
         "# without being changed.",
         "[bundle]",
         f'name = "{bundle}"',
+        # os and arch separately rather than one "platform" string, because a
+        # consumer already knows which of the two it is checking against -- it
+        # compares os to its own uname and arch to its own machine.
+        f'os = "{target_os}"',
         f'arch = "{arch}"',
         f'description = "{spec.get("description", "")}"',
         f"provides = [{', '.join(repr(p) for p in sorted(provides))}]".replace("'", '"'),
@@ -449,13 +488,39 @@ def write_manifest(bundle: str, spec: dict, arch: str, prefix: Path, provides: l
     (prefix / "bundle.toml").write_text("\n".join(lines) + "\n")
 
 
+def gnu_tar() -> str:
+    """A GNU tar, because the deterministic flags below are GNU tar's.
+
+    macOS `tar` is bsdtar, and the deterministic flags are not portable to it:
+    it has no --sort at all, and --mtime means "only files newer than this" to
+    bsdtar rather than "stamp every member with this". Reproducibility would
+    fail quietly -- member order following the filesystem, timestamps following
+    the build -- which is the worst way for it to fail, since the digest we
+    attest would simply be noise. The runner images ship GNU tar as `gtar`.
+    """
+    for candidate in ("tar", "gtar"):
+        path = shutil.which(candidate)
+        if not path:
+            continue
+        probe = subprocess.run([path, "--version"], capture_output=True, text=True, check=False)  # noqa: S603
+        if "GNU tar" in probe.stdout:
+            return path
+    die("no GNU tar found (looked for tar and gtar); bsdtar cannot write a reproducible archive")
+    raise AssertionError  # unreachable; die exits
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bundle", required=True)
-    parser.add_argument("--arch", required=True, choices=("amd64", "arm64"))
+    # Required rather than defaulted to the host: the output file is named for
+    # it, and a bundle quietly labelled linux because that is what the build
+    # machine happened to be would be worse than no bundle.
+    parser.add_argument("--os", dest="target_os", required=True, choices=OSES)
+    parser.add_argument("--arch", required=True, choices=ARCHES)
     parser.add_argument("--built-dir", type=Path, default=ROOT / "dist")
     parser.add_argument("--out", type=Path, default=ROOT / "out")
     args = parser.parse_args()
+    platform = f"{args.target_os}-{args.arch}"
 
     bundles = tomllib.loads((ROOT / "bundles.toml").read_text())["bundle"]
     if args.bundle not in bundles:
@@ -474,7 +539,7 @@ def main() -> int:
         installed_as = {"cdxgen-launcher": "cdxgen"}
 
         for tool in spec.get("built", []):
-            source = args.built_dir / f"{tool}-linux-{args.arch}"
+            source = args.built_dir / f"{tool}-{platform}"
             if not source.is_file():
                 die(f"{tool}: {source} is missing; build it before assembling")
             name = installed_as.get(tool, tool)
@@ -486,20 +551,20 @@ def main() -> int:
             print(f"  included {name} (built here)")
 
         for name, upstream in (spec.get("upstream") or {}).items():
-            add_upstream(name, upstream, args.arch, prefix, scratch)
+            add_upstream(name, upstream, platform, prefix, scratch)
             provides.append(name)
 
         if spec.get("npm_install"):
             install_from_lockfile(prefix, scratch)
 
-        write_manifest(args.bundle, spec, args.arch, prefix, provides)
+        write_manifest(args.bundle, spec, platform, prefix, provides)
 
-        archive = args.out / f"{args.bundle}-linux-{args.arch}.tar.gz"
+        archive = args.out / f"{args.bundle}-{platform}.tar.gz"
         # Sorted, with fixed ownership and timestamps: the same inputs should
         # produce the same bytes, or the digest we attest is noise.
         subprocess.run(  # noqa: S603
             [
-                "tar", "--sort=name", "--owner=0", "--group=0", "--numeric-owner",
+                gnu_tar(), "--sort=name", "--owner=0", "--group=0", "--numeric-owner",
                 "--mtime=@0", "--format=gnu", "-czf", str(archive), "-C", str(prefix), ".",
             ],
             check=True,

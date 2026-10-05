@@ -43,8 +43,11 @@ without root.
 | `syft` | syft | 27.1 MiB |
 | `sigstore` | cosign, crane | 32.9 MiB |
 
-Sizes are the amd64 archive. arm64 is smaller in every case, by 3% for
-`jvm` and 20% for `rust`.
+Sizes are the `linux-amd64` archive. `linux-arm64` is smaller in every case,
+by 3% for `jvm` and 20% for `rust`. The darwin archives are not listed because
+nothing has measured them yet; every build prints the size and digest of each
+archive it produces in its run summary, which is a better place to read them
+than a number here that goes stale.
 
 ### Which bundle an ecosystem needs
 
@@ -94,6 +97,87 @@ need the same 190MB JDK.
 Every archive carries a `bundle.toml` describing what it provides, which
 directories hold executables, and what environment to set, so a consumer
 unpacks it and reads what to do rather than being taught each layout.
+
+## Platforms
+
+Each bundle is published four times:
+
+| platform | archive | built on |
+| --- | --- | --- |
+| `linux-amd64` | `jvm-linux-amd64.tar.gz` | `ubuntu-latest` |
+| `linux-arm64` | `jvm-linux-arm64.tar.gz` | `ubuntu-24.04-arm` |
+| `darwin-amd64` | `jvm-darwin-amd64.tar.gz` | `macos-15-intel` |
+| `darwin-arm64` | `jvm-darwin-arm64.tar.gz` | `macos-15` |
+
+Darwin is here because these tools are useful to a person before they are
+useful to a pipeline. A consumer who wants to see what an SBOM of their
+project looks like, or why the one CI produced came back empty, should be able
+to run the same tools CI ran without getting a container involved -- and a
+developer debugging a local SBOM against a different syft than the pipeline
+used is debugging the wrong thing.
+
+Every platform is built on a runner of its own kind rather than
+cross-compiled. Rust and PHP leave no choice: neither can be built for macOS
+without Apple's SDK. The Go tools could have been cross-compiled, but their
+smoke test is executing them, and a build that cannot run what it produced
+proves the least about the platform that has never been tested.
+
+`bundle.toml` carries `os` and `arch`, so a consumer picks a bundle by
+comparing them against its own `uname` rather than parsing the file name.
+
+### What "self-contained" means on a Mac
+
+The Linux binaries here are statically linked, and the build refuses one that
+is not: an unpacked bundle has no idea which libc the container around it has.
+That property is unavailable on macOS -- Apple ships no `libSystem.a` and the
+linker refuses `-static`, so a Mach-O binary cannot be fully static. What is
+available is the same guarantee stated differently: everything the binary
+loads comes from the operating system, which every Mac has by definition.
+`.github/actions/assert-self-contained` checks it with `otool -L` and fails on
+any path outside `/usr/lib` and `/System/Library`.
+
+That check earns its keep on exactly one failure, and it is the likely one: a
+Homebrew path. A build machine has `/opt/homebrew` and a consumer does not, so
+a link against it works perfectly in CI and dies on the first Mac that
+downloads the result. PHP is where this nearly happened -- its `openssl`
+extension is what lets Composer reach packagist, macOS has no OpenSSL to link
+against, and Homebrew's is a dylib under `/opt/homebrew`. The build passes
+Homebrew's `libssl.a` and `libcrypto.a` explicitly so OpenSSL ends up inside
+the binary, the same place Alpine's `openssl-libs-static` puts it in the Linux
+build -- same outcome, and the only reason it needs saying is that the macOS
+default would have been the dylib.
+
+Nothing here is notarized, and there is no Developer ID certificate behind it.
+The binaries carry the ad-hoc signatures their linkers produce, which is what
+arm64 requires in order to execute at all and nothing more. In practice that
+is enough, because `curl` and `tar` do not set the quarantine attribute --
+Gatekeeper only involves itself in files a browser or an installer marked. A
+bundle downloaded through a browser needs one command before it will run:
+
+```console
+$ xattr -dr com.apple.quarantine <prefix>
+```
+
+The provenance attestation beside each archive is the real check anyway, and
+it says more than notarization does: `cosign verify-blob-attestation` ties the
+archive to the workflow, repository and commit that built it.
+
+### Where the layouts differ
+
+Two vendors ship macOS differently enough to matter, and both are normalised
+during assembly so a bundle has one shape on every platform:
+
+* Temurin's macOS JDK is an application bundle -- `Contents/Home/{bin,lib}`
+  under the version-named wrapper. `payload = "Contents/Home"` takes the
+  inside of it, so `jdk/bin/java` and `JAVA_HOME={prefix}/jdk` mean the same
+  thing everywhere and `bundle.toml` carries one value rather than two.
+* Microsoft spells macOS "osx" in its asset names. The .NET SDK's layout is
+  otherwise identical, entry point at the payload root, so `bin_dir` already
+  covers it.
+
+Maven, Gradle, sbt and `composer.phar` are JVM applications or bytecode: one
+archive serves all four platforms, and all four entries in `bundles.toml` name
+it with the same digest.
 
 ## Where the versions live
 
@@ -145,23 +229,25 @@ backwards: the release is the thing the bump might break. It is a pre-release
 so it never displaces the real latest release, and it is not a supported
 download.
 
-Every binary ships next to its Sigstore bundle:
+Every artifact ships next to its Sigstore bundle, one pair per platform:
 
 ```
-syft-linux-amd64
-syft-linux-amd64.sigstore.json
+syft-linux-amd64.tar.gz
+syft-linux-amd64.tar.gz.sigstore.json
+syft-darwin-arm64.tar.gz
+syft-darwin-arm64.tar.gz.sigstore.json
 ```
 
 ## Verifying
 
 ```console
 $ cosign verify-blob-attestation \
-    --bundle syft-linux-amd64.sigstore.json \
+    --bundle syft-darwin-arm64.tar.gz.sigstore.json \
     --new-bundle-format \
     --type slsaprovenance1 \
     --certificate-identity-regexp '^https://github\.com/sbomify/sbom-tools/\.github/workflows/build\.yml@refs/(heads/master|tags/.+)$' \
     --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-    syft-linux-amd64
+    syft-darwin-arm64.tar.gz
 ```
 
 `--new-bundle-format` and `--type slsaprovenance1` are both required: cosign v3
@@ -186,6 +272,13 @@ already test helps nobody.
 
 Consumers pin those upstream, by digest.
 
+Windows, too, and not for lack of demand: every bundle would need a third
+answer to how a tool is made self-contained, the PHP build has no counterpart
+there at all, and the unit of distribution stops being a tarball that unpacks
+anywhere. Darwin was worth that cost because it is where the people who read
+these SBOMs work; a Windows bundle would be a second port carrying the first
+one's assumptions.
+
 ## Integration tests
 
 Building a bundle proves the archive assembles. It does not prove the tools
@@ -200,13 +293,21 @@ well.
 against them, and checks the result is worth having:
 
 ```console
-$ python tests/integration.py --bundle jvm
+$ python tests/integration.py --bundle jvm --os darwin --arch arm64
+platform darwin-arm64
 project       bundle   format     generator     count  floor  verdict
 maven         jvm      cyclonedx  maven           106     40  ok
 maven         jvm      spdx       maven_spdx      106     40  ok
 maven-large   jvm      cyclonedx  maven           340    200  ok
 ...
 ```
+
+`--os` and `--arch` pick which bundle to test, and the harness refuses one
+whose `bundle.toml` describes a different platform rather than running the
+wrong binaries. All four are tested in CI, because macOS is where the
+toolchains a bundle carries actually differ -- a different JDK layout, a
+different .NET SDK, a `php` linked another way -- and those are the
+differences assembling an archive cannot catch.
 
 Every project has a floor because a zero-component SBOM is not an error to
 any of these tools — it validates, it uploads, and it looks like success.

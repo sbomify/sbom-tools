@@ -13,6 +13,14 @@
 # trusting the binary it is meant to replace, so they are pinned by the
 # vendor's published digest instead -- which is the same bootstrap reasoning
 # that keeps cosign vendor-pinned.
+#
+# An upstream entry is keyed by platform -- "linux-amd64", "darwin-arm64" --
+# rather than by architecture alone, because a vendor publishes a different
+# artifact per operating system and the digest beside it is what makes the
+# download safe. A platform table may also override the component settings
+# above it where the vendor's layout differs: Temurin wraps its macOS tree in
+# Contents/Home, so that platform sets `payload` and the bundle ends up with
+# jdk/bin meaning the same thing on both systems.
 
 [bundle.go]
 description = "cyclonedx-gomod and the Go toolchain it invokes"
@@ -28,12 +36,18 @@ env = { GOMODCACHE = "{prefix}/.gomodcache", GOCACHE = "{prefix}/.gocache", GOPA
   # already maintains for the tools built here.
   version_from = { file = "go.mod" }
   strip_container = true
-  [bundle.go.upstream.go.amd64]
+  [bundle.go.upstream.go.linux-amd64]
   url = "https://go.dev/dl/go{version}.linux-amd64.tar.gz"
   sha256 = "5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053"
-  [bundle.go.upstream.go.arm64]
+  [bundle.go.upstream.go.linux-arm64]
   url = "https://go.dev/dl/go{version}.linux-arm64.tar.gz"
   sha256 = "fe4789e92b1f33358680864bbe8704289e7bb5fc207d80623c308935bd696d49"
+  [bundle.go.upstream.go.darwin-amd64]
+  url = "https://go.dev/dl/go{version}.darwin-amd64.tar.gz"
+  sha256 = "6231d8d3b8f5552ec6cbf6d685bdd5482e1e703214b120e89b3bf0d7bf1ef725"
+  [bundle.go.upstream.go.darwin-arm64]
+  url = "https://go.dev/dl/go{version}.darwin-arm64.tar.gz"
+  sha256 = "efb87ff28af9a188d0536ef5d42e63dd52ba8263cd7344a993cc48dd11dedb6a"
 
 [bundle.rust]
 description = "cargo-cyclonedx with the cargo and rustc it shells out to"
@@ -55,12 +69,18 @@ env = { CARGO_HOME = "{prefix}/.cargo" }
   # run install.sh, and both components ship one, so keeping them would just
   # be two files fighting over the same name.
   exclude = ["manifest.in"]
-  [bundle.rust.upstream.cargo.amd64]
+  [bundle.rust.upstream.cargo.linux-amd64]
   url = "https://static.rust-lang.org/dist/cargo-1.97.1-x86_64-unknown-linux-gnu.tar.xz"
   sha256 = "e1be5f5ff7f7f80ca506fb65770b759edbdc6d303781ed71c5de8ec8a8394779"
-  [bundle.rust.upstream.cargo.arm64]
+  [bundle.rust.upstream.cargo.linux-arm64]
   url = "https://static.rust-lang.org/dist/cargo-1.97.1-aarch64-unknown-linux-gnu.tar.xz"
   sha256 = "8f70bcaccea5ba4db187c3fd4d64e24592b4e16af513497201f5909d61691dbe"
+  [bundle.rust.upstream.cargo.darwin-amd64]
+  url = "https://static.rust-lang.org/dist/cargo-1.97.1-x86_64-apple-darwin.tar.xz"
+  sha256 = "1bd1029b579d0563ca851ebd095914871535bfd1978a123eeaa03107e89b0e03"
+  [bundle.rust.upstream.cargo.darwin-arm64]
+  url = "https://static.rust-lang.org/dist/cargo-1.97.1-aarch64-apple-darwin.tar.xz"
+  sha256 = "2d84a74e9558192a7de674aca6aa3ab7464bed2df97e0377156ddb7e09a0fd7a"
 
   [bundle.rust.upstream.rustc]
   version = "1.97.1"
@@ -70,12 +90,18 @@ env = { CARGO_HOME = "{prefix}/.cargo" }
   # run install.sh, and both components ship one, so keeping them would just
   # be two files fighting over the same name.
   exclude = ["manifest.in"]
-  [bundle.rust.upstream.rustc.amd64]
+  [bundle.rust.upstream.rustc.linux-amd64]
   url = "https://static.rust-lang.org/dist/rustc-1.97.1-x86_64-unknown-linux-gnu.tar.xz"
   sha256 = "9819d0a32d56bd339585319c80260e332779f5541fd66838ab7e016d6c814819"
-  [bundle.rust.upstream.rustc.arm64]
+  [bundle.rust.upstream.rustc.linux-arm64]
   url = "https://static.rust-lang.org/dist/rustc-1.97.1-aarch64-unknown-linux-gnu.tar.xz"
   sha256 = "b344b81f0cd4c2246c7da8b197fe7a339d7dd02bb15cb69b2524115d9c75224c"
+  [bundle.rust.upstream.rustc.darwin-amd64]
+  url = "https://static.rust-lang.org/dist/rustc-1.97.1-x86_64-apple-darwin.tar.xz"
+  sha256 = "3c38289f319bf02fa1c8149ce3e00f261e4efd14813a99f7f7ae4f180c7d1173"
+  [bundle.rust.upstream.rustc.darwin-arm64]
+  url = "https://static.rust-lang.org/dist/rustc-1.97.1-aarch64-apple-darwin.tar.xz"
+  sha256 = "6076cad38ccabaa24325f26a74080a363a2633a9cd34c473a8977255d8a593cb"
 
 [bundle.syft]
 description = "syft, for container images and as the filesystem fallback"
@@ -118,17 +144,23 @@ npm_install = true
   # describing things the project does not depend on is not a better one.
   [bundle.cdxgen.upstream.bun]
   version = "1.3.14"
-  # The zip is bun-linux-x64/bun -- one directory holding the binary and
+  # The zip is bun-<platform>/bun -- one directory holding the binary and
   # nothing else -- so stripping the wrapper and landing it in bin/ puts it
   # straight onto PATH.
   strip_container = true
   into = "bin"
-  [bundle.cdxgen.upstream.bun.amd64]
+  [bundle.cdxgen.upstream.bun.linux-amd64]
   url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-linux-x64.zip"
   sha256 = "951ee2aee855f08595aeec6225226a298d3fea83a3dcd6465c09cbccdf7e848f"
-  [bundle.cdxgen.upstream.bun.arm64]
+  [bundle.cdxgen.upstream.bun.linux-arm64]
   url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-linux-aarch64.zip"
   sha256 = "a27ffb63a8310375836e0d6f668ae17fa8d8d18b88c37c821c65331973a19a3b"
+  [bundle.cdxgen.upstream.bun.darwin-amd64]
+  url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-darwin-x64.zip"
+  sha256 = "4183df3374623e5bab315c547cfa0974533cd457d86b73b639f7a87974cd6633"
+  [bundle.cdxgen.upstream.bun.darwin-arm64]
+  url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-darwin-aarch64.zip"
+  sha256 = "d8b96221828ad6f97ac7ac0ab7e95872341af763001e8803e8267652c2652620"
 [bundle.jvm]
 # Records the CycloneDX plugin versions in bundle.toml; see PLUGIN_PINS.
 build_plugins = true
@@ -198,36 +230,64 @@ env = { JAVA_HOME = "{prefix}/jdk", MAVEN_ARGS = "-Dmaven.repo.local={prefix}/re
   # describing things the project does not depend on is not a better one.
   [bundle.jvm.upstream.bun]
   version = "1.3.14"
-  # The zip is bun-linux-x64/bun -- one directory holding the binary and
+  # The zip is bun-<platform>/bun -- one directory holding the binary and
   # nothing else -- so stripping the wrapper and landing it in bin/ puts it
   # straight onto PATH.
   strip_container = true
   into = "bin"
-  [bundle.jvm.upstream.bun.amd64]
+  [bundle.jvm.upstream.bun.linux-amd64]
   url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-linux-x64.zip"
   sha256 = "951ee2aee855f08595aeec6225226a298d3fea83a3dcd6465c09cbccdf7e848f"
-  [bundle.jvm.upstream.bun.arm64]
+  [bundle.jvm.upstream.bun.linux-arm64]
   url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-linux-aarch64.zip"
   sha256 = "a27ffb63a8310375836e0d6f668ae17fa8d8d18b88c37c821c65331973a19a3b"
+  [bundle.jvm.upstream.bun.darwin-amd64]
+  url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-darwin-x64.zip"
+  sha256 = "4183df3374623e5bab315c547cfa0974533cd457d86b73b639f7a87974cd6633"
+  [bundle.jvm.upstream.bun.darwin-arm64]
+  url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-darwin-aarch64.zip"
+  sha256 = "d8b96221828ad6f97ac7ac0ab7e95872341af763001e8803e8267652c2652620"
   [bundle.jvm.upstream.jdk]
   version = "21.0.12+8"
   strip_container = true
   into = "jdk"
-  [bundle.jvm.upstream.jdk.amd64]
+  [bundle.jvm.upstream.jdk.linux-amd64]
   url = "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12%2B8/OpenJDK21U-jdk_x64_linux_hotspot_21.0.12_8.tar.gz"
   sha256 = "e4446ff06a276155697597cc0f1b15da004ff083f4964a35271ecee567177370"
-  [bundle.jvm.upstream.jdk.arm64]
+  [bundle.jvm.upstream.jdk.linux-arm64]
   url = "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12%2B8/OpenJDK21U-jdk_aarch64_linux_hotspot_21.0.12_8.tar.gz"
   sha256 = "eba38e871b02d407897bfe017ea35352dfc1420ef6d2112425b0c67325ca509d"
+  # macOS Temurin is an application bundle: under the version-named wrapper it
+  # is Contents/Home/{bin,lib,conf} plus Contents/MacOS and a _CodeSignature
+  # seal over the bundle. Taking Contents/Home as the payload leaves jdk/bin
+  # and jdk/lib exactly where the Linux archive puts them, so JAVA_HOME and
+  # the bin_dirs in bundle.toml stay one value rather than two. The bundle seal
+  # is dropped with the wrapper, which costs nothing: each Mach-O inside
+  # carries its own signature, and that is what macOS checks before running
+  # one.
+  [bundle.jvm.upstream.jdk.darwin-amd64]
+  payload = "Contents/Home"
+  url = "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12%2B8/OpenJDK21U-jdk_x64_mac_hotspot_21.0.12_8.tar.gz"
+  sha256 = "6b85c260eea574a995eacd0b3ee23c8042aa93b23a08e6478edafca0a0333d7f"
+  [bundle.jvm.upstream.jdk.darwin-arm64]
+  payload = "Contents/Home"
+  url = "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12%2B8/OpenJDK21U-jdk_aarch64_mac_hotspot_21.0.12_8.tar.gz"
+  sha256 = "021d629349ebc12a409faa517b837ec80ceee8f58a5ac85c788ecad07ca6881c"
 
   [bundle.jvm.upstream.maven]
   version = "3.9.16"
   strip_container = true
   into = "maven"
-  [bundle.jvm.upstream.maven.amd64]
+  [bundle.jvm.upstream.maven.linux-amd64]
   url = "https://archive.apache.org/dist/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.tar.gz"
   sha512 = "831a8591fe20c8243b1dbe7d71e3244f31d1665b0804b2e825e38cbbe5ce0cafb8338851f90780735568773e0a6cd07bbec107cda0b896b008b861075358b6f6"
-  [bundle.jvm.upstream.maven.arm64]
+  [bundle.jvm.upstream.maven.linux-arm64]
+  url = "https://archive.apache.org/dist/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.tar.gz"
+  sha512 = "831a8591fe20c8243b1dbe7d71e3244f31d1665b0804b2e825e38cbbe5ce0cafb8338851f90780735568773e0a6cd07bbec107cda0b896b008b861075358b6f6"
+  [bundle.jvm.upstream.maven.darwin-amd64]
+  url = "https://archive.apache.org/dist/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.tar.gz"
+  sha512 = "831a8591fe20c8243b1dbe7d71e3244f31d1665b0804b2e825e38cbbe5ce0cafb8338851f90780735568773e0a6cd07bbec107cda0b896b008b861075358b6f6"
+  [bundle.jvm.upstream.maven.darwin-arm64]
   url = "https://archive.apache.org/dist/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.tar.gz"
   sha512 = "831a8591fe20c8243b1dbe7d71e3244f31d1665b0804b2e825e38cbbe5ce0cafb8338851f90780735568773e0a6cd07bbec107cda0b896b008b861075358b6f6"
 
@@ -235,15 +295,22 @@ env = { JAVA_HOME = "{prefix}/jdk", MAVEN_ARGS = "-Dmaven.repo.local={prefix}/re
   version = "9.6.1"
   strip_container = true
   into = "gradle"
-  [bundle.jvm.upstream.gradle.amd64]
+  [bundle.jvm.upstream.gradle.linux-amd64]
   url = "https://services.gradle.org/distributions/gradle-9.6.1-bin.zip"
   sha256 = "9c0f7faeeb306cb14e4279a3e084ca6b596894089a0638e68a07c945a32c9e14"
-  [bundle.jvm.upstream.gradle.arm64]
+  [bundle.jvm.upstream.gradle.linux-arm64]
+  url = "https://services.gradle.org/distributions/gradle-9.6.1-bin.zip"
+  sha256 = "9c0f7faeeb306cb14e4279a3e084ca6b596894089a0638e68a07c945a32c9e14"
+  [bundle.jvm.upstream.gradle.darwin-amd64]
+  url = "https://services.gradle.org/distributions/gradle-9.6.1-bin.zip"
+  sha256 = "9c0f7faeeb306cb14e4279a3e084ca6b596894089a0638e68a07c945a32c9e14"
+  [bundle.jvm.upstream.gradle.darwin-arm64]
   url = "https://services.gradle.org/distributions/gradle-9.6.1-bin.zip"
   sha256 = "9c0f7faeeb306cb14e4279a3e084ca6b596894089a0638e68a07c945a32c9e14"
 
-  # Gradle and sbt are JVM applications, so one architecture-independent
-  # archive serves both. Only the JDK below differs per architecture.
+  # Maven, Gradle and sbt are JVM applications, so one platform-independent
+  # archive serves all four platforms. Only the JDK above differs, and only
+  # because a JVM has to be built for the machine it runs on.
   # sbt 1.x, not 2.x. Picking "latest" put 2.0.5 here, and 2.x is a major
   # rewrite: its launcher dies with a ClassCastException before any project
   # loads, and cdxgen's dependency-graph plugin is published only for sbt 1.x
@@ -254,10 +321,16 @@ env = { JAVA_HOME = "{prefix}/jdk", MAVEN_ARGS = "-Dmaven.repo.local={prefix}/re
   version = "1.12.14"
   strip_container = true
   into = "sbt"
-  [bundle.jvm.upstream.sbt.amd64]
+  [bundle.jvm.upstream.sbt.linux-amd64]
   url = "https://github.com/sbt/sbt/releases/download/v1.12.14/sbt-1.12.14.tgz"
   sha256 = "cd17daae220ff264faa4251334522444518584f0eb2ee82da01523a9b9002b7e"
-  [bundle.jvm.upstream.sbt.arm64]
+  [bundle.jvm.upstream.sbt.linux-arm64]
+  url = "https://github.com/sbt/sbt/releases/download/v1.12.14/sbt-1.12.14.tgz"
+  sha256 = "cd17daae220ff264faa4251334522444518584f0eb2ee82da01523a9b9002b7e"
+  [bundle.jvm.upstream.sbt.darwin-amd64]
+  url = "https://github.com/sbt/sbt/releases/download/v1.12.14/sbt-1.12.14.tgz"
+  sha256 = "cd17daae220ff264faa4251334522444518584f0eb2ee82da01523a9b9002b7e"
+  [bundle.jvm.upstream.sbt.darwin-arm64]
   url = "https://github.com/sbt/sbt/releases/download/v1.12.14/sbt-1.12.14.tgz"
   sha256 = "cd17daae220ff264faa4251334522444518584f0eb2ee82da01523a9b9002b7e"
 
@@ -268,10 +341,12 @@ description = "cdxgen with the PHP runtime and Composer it shells out to"
 # nothing else, so a bundle without syft can serve only one of the two
 # formats. A bundle should be able to answer either question on its own.
 #
-# php is "built" rather than "upstream" because php.net publishes no Linux
-# binaries -- only source. It is compiled from the tarball pinned in
-# php-release.json, by the digest php.net publishes for it, and comes out
-# static-pie linked like everything else built here.
+# php is "built" rather than "upstream" because php.net publishes no binaries
+# for either system we target -- only source. It is compiled from the tarball
+# pinned in php-release.json, by the digest php.net publishes for it: inside
+# Alpine for Linux, so it comes out static-pie linked like everything else
+# built here, and against the macOS SDK with a static OpenSSL for Darwin,
+# which is as self-contained as a Mach-O binary is allowed to be.
 built = ["syft", "cdxgen-launcher", "php"]
 # cdxgen is one of ours, so it comes from the lockfile that pins it --
 # bun.lock records a sha512 for it and 197 other packages, and
@@ -317,17 +392,23 @@ env = { COMPOSER_HOME = "{prefix}/.composer", COMPOSER_CACHE_DIR = "{prefix}/.co
   # describing things the project does not depend on is not a better one.
   [bundle.php.upstream.bun]
   version = "1.3.14"
-  # The zip is bun-linux-x64/bun -- one directory holding the binary and
+  # The zip is bun-<platform>/bun -- one directory holding the binary and
   # nothing else -- so stripping the wrapper and landing it in bin/ puts it
   # straight onto PATH.
   strip_container = true
   into = "bin"
-  [bundle.php.upstream.bun.amd64]
+  [bundle.php.upstream.bun.linux-amd64]
   url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-linux-x64.zip"
   sha256 = "951ee2aee855f08595aeec6225226a298d3fea83a3dcd6465c09cbccdf7e848f"
-  [bundle.php.upstream.bun.arm64]
+  [bundle.php.upstream.bun.linux-arm64]
   url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-linux-aarch64.zip"
   sha256 = "a27ffb63a8310375836e0d6f668ae17fa8d8d18b88c37c821c65331973a19a3b"
+  [bundle.php.upstream.bun.darwin-amd64]
+  url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-darwin-x64.zip"
+  sha256 = "4183df3374623e5bab315c547cfa0974533cd457d86b73b639f7a87974cd6633"
+  [bundle.php.upstream.bun.darwin-arm64]
+  url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-darwin-aarch64.zip"
+  sha256 = "d8b96221828ad6f97ac7ac0ab7e95872341af763001e8803e8267652c2652620"
 
   # composer.phar carries `#!/usr/bin/env php`, so landing it in bin/ named
   # `composer` and marking it executable is all it needs -- the php built
@@ -335,18 +416,24 @@ env = { COMPOSER_HOME = "{prefix}/.composer", COMPOSER_CACHE_DIR = "{prefix}/.co
   # to know.
   #
   # getcomposer.org is Composer's own distribution channel, and the phar is
-  # bytecode: identical on every architecture. Both entries therefore name
-  # the same artefact and the same digest. Listing it once per arch anyway
+  # bytecode: identical on every platform. All four entries therefore name
+  # the same artefact and the same digest. Listing it once per platform anyway
   # keeps the schema uniform rather than making this the one component shaped
   # differently.
   [bundle.php.upstream.composer]
   version = "2.9.4"
   kind = "raw"
   bin_name = "composer"
-  [bundle.php.upstream.composer.amd64]
+  [bundle.php.upstream.composer.linux-amd64]
   url = "https://getcomposer.org/download/{version}/composer.phar"
   sha256 = "d3eb5c4cb2e708267dac5f9a76d2a57b07836c7ea68783a1a02bd6d94753ea80"
-  [bundle.php.upstream.composer.arm64]
+  [bundle.php.upstream.composer.linux-arm64]
+  url = "https://getcomposer.org/download/{version}/composer.phar"
+  sha256 = "d3eb5c4cb2e708267dac5f9a76d2a57b07836c7ea68783a1a02bd6d94753ea80"
+  [bundle.php.upstream.composer.darwin-amd64]
+  url = "https://getcomposer.org/download/{version}/composer.phar"
+  sha256 = "d3eb5c4cb2e708267dac5f9a76d2a57b07836c7ea68783a1a02bd6d94753ea80"
+  [bundle.php.upstream.composer.darwin-arm64]
   url = "https://getcomposer.org/download/{version}/composer.phar"
   sha256 = "d3eb5c4cb2e708267dac5f9a76d2a57b07836c7ea68783a1a02bd6d94753ea80"
 
@@ -380,17 +467,23 @@ env = { DOTNET_CLI_HOME = "{prefix}/.dotnet", NUGET_PACKAGES = "{prefix}/.nuget"
   # describing things the project does not depend on is not a better one.
   [bundle.dotnet.upstream.bun]
   version = "1.3.14"
-  # The zip is bun-linux-x64/bun -- one directory holding the binary and
+  # The zip is bun-<platform>/bun -- one directory holding the binary and
   # nothing else -- so stripping the wrapper and landing it in bin/ puts it
   # straight onto PATH.
   strip_container = true
   into = "bin"
-  [bundle.dotnet.upstream.bun.amd64]
+  [bundle.dotnet.upstream.bun.linux-amd64]
   url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-linux-x64.zip"
   sha256 = "951ee2aee855f08595aeec6225226a298d3fea83a3dcd6465c09cbccdf7e848f"
-  [bundle.dotnet.upstream.bun.arm64]
+  [bundle.dotnet.upstream.bun.linux-arm64]
   url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-linux-aarch64.zip"
   sha256 = "a27ffb63a8310375836e0d6f668ae17fa8d8d18b88c37c821c65331973a19a3b"
+  [bundle.dotnet.upstream.bun.darwin-amd64]
+  url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-darwin-x64.zip"
+  sha256 = "4183df3374623e5bab315c547cfa0974533cd457d86b73b639f7a87974cd6633"
+  [bundle.dotnet.upstream.bun.darwin-arm64]
+  url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-darwin-aarch64.zip"
+  sha256 = "d8b96221828ad6f97ac7ac0ab7e95872341af763001e8803e8267652c2652620"
   [bundle.dotnet.upstream.dotnet]
   # From global.json, which Dependabot's dotnet-sdk updater maintains.
   version_from = { file = "global.json" }
@@ -398,9 +491,18 @@ env = { DOTNET_CLI_HOME = "{prefix}/.dotnet", NUGET_PACKAGES = "{prefix}/.nuget"
   # The SDK ships its entry point as <root>/dotnet, not <root>/bin/dotnet, so
   # the payload directory is itself the bin directory.
   bin_dir = "dotnet"
-  [bundle.dotnet.upstream.dotnet.amd64]
+  [bundle.dotnet.upstream.dotnet.linux-amd64]
   url = "https://builds.dotnet.microsoft.com/dotnet/Sdk/{version}/dotnet-sdk-{version}-linux-x64.tar.gz"
   sha512 = "51c8b999af9e8dd9998c9edc5944e19a90788862068acd38694e098889054ce8c23d4f0c5cccfa16bf187d044562359e5ee69a9f8ad0bbe913ba90311fbce25b"
-  [bundle.dotnet.upstream.dotnet.arm64]
+  [bundle.dotnet.upstream.dotnet.linux-arm64]
   url = "https://builds.dotnet.microsoft.com/dotnet/Sdk/{version}/dotnet-sdk-{version}-linux-arm64.tar.gz"
   sha512 = "58ace73ced6b4360754689a686bdfb8a317f4da6cb8bb416dbc7d0ba9f47e43e3c09f5eb1f1a1cfaacbd10df9558da4882bf2a5e195d6ab56a02c1f9f76102ed"
+  # Microsoft spells macOS "osx" in its asset names. The layout is the Linux
+  # one -- the SDK's entry point is <root>/dotnet -- so bin_dir above serves
+  # both.
+  [bundle.dotnet.upstream.dotnet.darwin-amd64]
+  url = "https://builds.dotnet.microsoft.com/dotnet/Sdk/{version}/dotnet-sdk-{version}-osx-x64.tar.gz"
+  sha512 = "33401b4a2da8554e3306db6072ea8569d9fcc608509c271e0aa4b39e7cc432da3631f14e7e1e2445d67d72550d18ce44a8bbd2382a756867ad2edab6b1c963c0"
+  [bundle.dotnet.upstream.dotnet.darwin-arm64]
+  url = "https://builds.dotnet.microsoft.com/dotnet/Sdk/{version}/dotnet-sdk-{version}-osx-arm64.tar.gz"
+  sha512 = "69f64eb00dc045398755c440b152225d544301a345a146a16e86a56a0c52b7c94b2c331520e976dbb821f18d31930aafbd25bb85961e3517e0665414ce0cbcff"

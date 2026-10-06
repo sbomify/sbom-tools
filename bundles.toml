@@ -166,6 +166,32 @@ npm_install = true
 build_plugins = true
 description = "cdxgen with the JDK, Maven, Gradle and sbt it shells out to"
 
+# Everything [bundle.jvm] declares for itself comes before the first sub-table
+# below it, and has to. TOML hands a bare key to whichever table was opened
+# last, so while the wrappers block sat above these three they were read as
+# keys of `wrappers.maven` -- and the jvm bundle shipped for two months with no
+# syft, no cdxgen and none of the env below. Nothing failed: the archive
+# assembled, attested and published, and every tool it did contain worked.
+
+# syft is here for SPDX. The native CycloneDX tools -- cyclonedx-gomod,
+# cargo-cyclonedx, the Maven/Gradle/sbt plugins -- emit CycloneDX and
+# nothing else, so a bundle without syft can serve only one of the two
+# formats. A bundle should be able to answer either question on its own.
+built = ["syft", "cdxgen-launcher"]
+# cdxgen is one of ours, so it comes from the lockfile that pins it --
+# bun.lock records a sha512 for it and 197 other packages, and
+# --frozen-lockfile refuses anything that does not match. Optional
+# dependencies are omitted: they are per-platform plugin binaries worth
+# 375MB that nothing here uses, and the output is identical without them.
+npm_install = true
+env = { JAVA_HOME = "{prefix}/jdk", MAVEN_ARGS = "-Dmaven.repo.local={prefix}/repository", GRADLE_USER_HOME = "{prefix}/.gradle", SBT_OPTS = "-Dsbt.global.base={prefix}/.sbt -Dsbt.ivy.home={prefix}/.ivy2 -Dsbt.coursier.home={prefix}/.coursier" }
+# Self-contained on purpose: cdxgen shells out to the build tool, and none of
+# them start without a JVM. Measured with cdxgen alone and no toolchain, a
+# Gradle project yields 0 components and an sbt project crashes outright --
+# and a 0-component SBOM still looks like success, which is exactly the silent
+# failure this is meant to stop. All three build tools share one JDK here;
+# separate bundles would ship 190MB of JDK three times.
+
   # The build-tool wrappers a project may commit, and what to run instead when
   # one of them cannot. A consumer prefers the project's wrapper -- projects
   # pin a build-tool version for a reason, and the pinned one here often does
@@ -198,24 +224,6 @@ description = "cdxgen with the JDK, Maven, Gradle and sbt it shells out to"
   [bundle.jvm.wrappers.maven]
   script = "mvnw"
   tool = "mvn"
-# syft is here for SPDX. The native CycloneDX tools -- cyclonedx-gomod,
-# cargo-cyclonedx, the Maven/Gradle/sbt plugins -- emit CycloneDX and
-# nothing else, so a bundle without syft can serve only one of the two
-# formats. A bundle should be able to answer either question on its own.
-built = ["syft", "cdxgen-launcher"]
-# cdxgen is one of ours, so it comes from the lockfile that pins it --
-# bun.lock records a sha512 for it and 197 other packages, and
-# --frozen-lockfile refuses anything that does not match. Optional
-# dependencies are omitted: they are per-platform plugin binaries worth
-# 375MB that nothing here uses, and the output is identical without them.
-npm_install = true
-env = { JAVA_HOME = "{prefix}/jdk", MAVEN_ARGS = "-Dmaven.repo.local={prefix}/repository", GRADLE_USER_HOME = "{prefix}/.gradle", SBT_OPTS = "-Dsbt.global.base={prefix}/.sbt -Dsbt.ivy.home={prefix}/.ivy2 -Dsbt.coursier.home={prefix}/.coursier" }
-# Self-contained on purpose: cdxgen shells out to the build tool, and none of
-# them start without a JVM. Measured with cdxgen alone and no toolchain, a
-# Gradle project yields 0 components and an sbt project crashes outright --
-# and a 0-component SBOM still looks like success, which is exactly the silent
-# failure this is meant to stop. All three build tools share one JDK here;
-# separate bundles would ship 190MB of JDK three times.
 
   # bun, pinned here because it is a runtime rather than one of our tools --
   # the same category as the JDK, and in no lockfile of ours. cdxgen itself is

@@ -468,6 +468,21 @@ def write_manifest(bundle: str, spec: dict, platform: str, prefix: Path, provide
         shipped = _executables(prefix, bin_dirs)
         for name in sorted(wrappers):
             declared = wrappers[name]
+            # A wrapper table holds three keys and nothing else. Anything else
+            # in there did not mean to be: TOML gives a bare key to whichever
+            # table was opened last, so a `built =` or `env =` written after a
+            # [bundle.X.wrappers.Y] header lands here rather than on the
+            # bundle. That is not a hypothetical -- it is how the jvm bundle
+            # spent two months shipping without syft, without cdxgen and
+            # without JAVA_HOME, while assembling and attesting perfectly
+            # well. Keys the bundle lost are keys this wrapper gained, so this
+            # is where it is cheapest to notice.
+            if stray := sorted(set(declared) - {"script", "tool", "needs"}):
+                die(
+                    f"wrapper {name!r} in bundle {bundle!r} declares {', '.join(stray)}, "
+                    "which are not wrapper keys -- they were almost certainly meant for "
+                    f"[bundle.{bundle}], and belong above the first sub-table under it"
+                )
             for required in ("script", "tool"):
                 if not declared.get(required):
                     die(f"wrapper {name!r} in bundle {bundle!r} declares no {required}")
@@ -526,6 +541,12 @@ def main() -> int:
     if args.bundle not in bundles:
         die(f"unknown bundle {args.bundle!r}; known: {', '.join(sorted(bundles))}")
     spec = bundles[args.bundle]
+    # Every bundle exists to deliver tools compiled from the lockfiles here;
+    # the vendor toolchain beside them is what those tools shell out to. One
+    # that declares none is not a bundle, and the way to end up with one is a
+    # `built =` that a sub-table above it quietly captured.
+    if not spec.get("built"):
+        die(f"bundle {args.bundle!r} declares no built tools; see [bundle.{args.bundle}] in bundles.toml")
 
     args.out.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory() as tmp:

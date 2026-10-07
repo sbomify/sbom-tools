@@ -2,14 +2,24 @@
 # channel alias would silently change the compiler between builds, and the
 # provenance we attest is meant to describe something reproducible.
 #
-# musl targets, because the binaries must be static. A glibc-linked binary
-# carries an implicit dependency on the host's libc version, which for
-# something unpacked into an arbitrary container is a dependency we cannot
-# see and the consumer cannot satisfy.
+# musl for the Linux targets, because those binaries must be static. A
+# glibc-linked binary carries an implicit dependency on the host's libc
+# version, which for something unpacked into an arbitrary container is a
+# dependency we cannot see and the consumer cannot satisfy.
+#
+# The Darwin targets have no musl counterpart and need none: a Mach-O binary
+# links against the libSystem Apple ships, and every Mac has it. Apple also
+# ships no static libc, so there is no choice to make here -- see the
+# assert-self-contained action for what is checked instead.
+#
+# All four are listed so rustup installs the one each build job asks for;
+# `cargo install --target` refuses a target the toolchain does not have.
 [toolchain]
 channel = "1.97.1"
 components = ["cargo", "rustc"]
 targets = [
   "x86_64-unknown-linux-musl",
   "aarch64-unknown-linux-musl",
+  "x86_64-apple-darwin",
+  "aarch64-apple-darwin",
 ]

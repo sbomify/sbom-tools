@@ -239,9 +239,13 @@ jobs:
             } >> "$GITHUB_OUTPUT"
           fi
 
-      # amd64 only. The two architectures hold the same tools at the same
-      # versions and differ in machine code, which an SBOM does not describe --
-      # two documents would differ only in their file hashes.
+      # linux/amd64 only, of the four platforms published. All four hold the
+      # same tools at the same versions -- the same syft, the same cdxgen, the
+      # same JDK and .NET SDK releases -- and differ in which build of each
+      # they carry, which an SBOM does not describe. Four documents would
+      # differ only in their file hashes, and a component list that is the
+      # same list four times invites the reader to look for a difference that
+      # is not there.
       - name: Unpack the published bundle and describe it with its own syft
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

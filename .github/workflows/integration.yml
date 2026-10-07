@@ -32,24 +32,33 @@ permissions:
 
 jobs:
   integration:
-    name: ${{ matrix.bundle }} (${{ matrix.arch }})
+    name: ${{ matrix.bundle }} (${{ matrix.platform }})
     # A bundle can take a while: Keycloak is a large reactor and Gradle
     # resolves from the network.
     timeout-minutes: 90
-    # Matched to the architecture being tested. Until now this ran amd64 only,
-    # so half of what we publish had generated an SBOM exactly never --
-    # build.yml executes each arm64 binary for its version string, which proves
-    # it loads, not that it can resolve a real project's dependencies. An
+    # Matched to the platform being tested. This once ran amd64 Linux only, so
+    # three quarters of what we publish had generated an SBOM exactly never --
+    # build.yml executes each binary for its version string, which proves it
+    # loads, not that it can resolve a real project's dependencies. An
     # immutable release should not be the first time that is tried.
+    #
+    # macOS is where this matters most, because it is where the toolchains the
+    # bundles carry differ from the ones they carry on Linux: a different JDK
+    # layout, a different .NET SDK, a php linked a different way. Those are
+    # exactly the differences a build cannot catch. GitHub runs fewer macOS
+    # jobs concurrently than Linux ones, so the twelve here queue rather than
+    # fan out; fail-fast stays off so a slow one does not cancel the rest.
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
         bundle: [jvm, go, rust, dotnet, cdxgen, php]
-        arch: [amd64, arm64]
+        platform: [linux-amd64, linux-arm64, darwin-amd64, darwin-arm64]
         include:
-          - { arch: amd64, runner: ubuntu-latest }
-          - { arch: arm64, runner: ubuntu-24.04-arm }
+          - { platform: linux-amd64, os: linux, arch: amd64, runner: ubuntu-latest }
+          - { platform: linux-arm64, os: linux, arch: arm64, runner: ubuntu-24.04-arm }
+          - { platform: darwin-amd64, os: darwin, arch: amd64, runner: macos-15-intel }
+          - { platform: darwin-arm64, os: darwin, arch: arm64, runner: macos-15 }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -63,14 +72,16 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/sbom-tools-it
-          key: it-${{ matrix.bundle }}-${{ matrix.arch }}-${{ hashFiles('tests/projects.toml', 'bundles.toml') }}
-          restore-keys: it-${{ matrix.bundle }}-${{ matrix.arch }}-
+          key: it-${{ matrix.bundle }}-${{ matrix.platform }}-${{ hashFiles('tests/projects.toml', 'bundles.toml') }}
+          restore-keys: it-${{ matrix.bundle }}-${{ matrix.platform }}-
 
       - name: Run
         if: github.event.inputs.bundle == '' || github.event.inputs.bundle == matrix.bundle
-        run: python tests/integration.py --bundle ${{ matrix.bundle }} --arch ${{ matrix.arch }}
+        run: |
+          python tests/integration.py --bundle ${{ matrix.bundle }} \
+            --os ${{ matrix.os }} --arch ${{ matrix.arch }}
 
       - name: Report
         if: always()
         run: |
-          echo "bundle ${{ matrix.bundle }} (${{ matrix.arch }}) - ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "bundle ${{ matrix.bundle }} (${{ matrix.platform }}) - ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"

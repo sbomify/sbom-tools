@@ -1,0 +1,25 @@
+[project]
+name = "sbom-tools-licensedb"
+version = "0.0.0"
+description = "Builds the per-distro license databases sbomify-action enriches Linux packages from."
+requires-python = ">=3.13"
+# sbomify-action supplies the license normalizer and the distro lifecycle
+# table. Both are code the action runs itself, so they are imported from the
+# release pinned in uv.lock rather than copied, and a Dependabot bump of it is
+# what brings a new distro release here.
+dependencies = [
+    "sbomify-action>=26.10.3",
+    "defusedxml>=0.7.1",
+    "packageurl-python>=0.17.6",
+    "requests>=2.32.3,<3",
+    "zstandard>=0.25.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3,<10",
+]
+
+# Nothing here is a library: the scripts run from this directory.
+[tool.uv]
+package = false

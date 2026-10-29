@@ -1,0 +1,137 @@
+---
+# Build the per-distro license databases sbomify-action enriches Linux
+# packages from, and publish them next to the bundles.
+#
+# These used to be built and released by sbomify-action itself. They are data
+# the action downloads at run time, not part of the action, and they follow
+# the same release model as everything else here:
+#
+#   push to master   the "rolling" pre-release, when licensedb/ changed
+#   published tag    that release's assets
+#   dispatch         whichever tag is named, rolling by default
+#
+# Only a change to licensedb/ rebuilds rolling. The Ubuntu and Debian
+# databases take hours, and a syft bump has no bearing on them.
+name: License databases
+
+on:
+  push:
+    branches: [master]
+    paths: ["licensedb/**", ".github/workflows/licensedb.yml"]
+  pull_request:
+    paths: ["licensedb/**", ".github/workflows/licensedb.yml"]
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      distros:
+        description: 'Distros to generate (comma-separated, or "all")'
+        required: false
+        default: "all"
+      tag:
+        description: "Release to upload to"
+        required: false
+        default: "rolling"
+
+permissions:
+  contents: read
+
+jobs:
+  # Offline: the generator's version lists against sbomify-action's lifecycle
+  # table, and the PURL keys the action looks packages up by.
+  test:
+    name: Test the generator
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: licensedb/uv.lock
+      - run: uv run --locked --project licensedb pytest licensedb
+
+  # The matrix is derived from the generator's own configuration rather than
+  # duplicated here, so a new distro release cannot be added to the code and
+  # silently never get a database built. See licensedb/matrix.py.
+  prepare-matrix:
+    name: Resolve the distro matrix
+    if: github.event_name != 'pull_request'
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.resolve.outputs.matrix }}
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: licensedb/uv.lock
+
+      - name: Resolve matrix
+        id: resolve
+        env:
+          DISTROS: ${{ inputs.distros || 'all' }}
+        run: |
+          MATRIX="$(uv run --locked --project licensedb licensedb/matrix.py --distros "$DISTROS")"
+          {
+            echo "matrix<<GHA_MATRIX_EOF"
+            echo "$MATRIX"
+            echo "GHA_MATRIX_EOF"
+          } >> "$GITHUB_OUTPUT"
+          uv run --locked --project licensedb licensedb/matrix.py --distros "$DISTROS" --pretty
+
+      - name: Resolve the release to upload to
+        id: tag
+        env:
+          EVENT: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          case "$EVENT" in
+            release)           TAG="$RELEASE_TAG" ;;
+            workflow_dispatch) TAG="${INPUT_TAG:-rolling}" ;;
+            *)                 TAG=rolling ;;
+          esac
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Uploading to release: $TAG"
+
+  generate:
+    name: ${{ matrix.distro }}-${{ matrix.version }}
+    needs: prepare-matrix
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.prepare-matrix.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: licensedb/uv.lock
+
+      - name: Generate
+        env:
+          DISTRO: ${{ matrix.distro }}
+          VERSION: ${{ matrix.version }}
+        run: |
+          uv run --locked --project licensedb licensedb/generate.py \
+            --distro "$DISTRO" \
+            --version "$VERSION" \
+            --output "$DISTRO-$VERSION.json.gz"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: license-db-${{ matrix.distro }}-${{ matrix.version }}
+          path: ${{ matrix.distro }}-${{ matrix.version }}.json.gz
+          retention-days: 7
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.prepare-matrix.outputs.tag }}
+          ASSET: ${{ matrix.distro }}-${{ matrix.version }}.json.gz
+        run: gh release upload "$TAG" "$ASSET" --clobber

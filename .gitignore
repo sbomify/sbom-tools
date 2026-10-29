@@ -10,3 +10,6 @@ __pycache__/
 
 # Local caches from running the integration suite outside CI.
 /.cache/
+
+# The license database generator's virtualenv, from `uv run --project licensedb`.
+/licensedb/.venv/

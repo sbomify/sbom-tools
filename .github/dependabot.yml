@@ -66,3 +66,13 @@ updates:
     commit-message:
       prefix: "chore"
 
+
+  # The license database generator. Its uv.lock pins sbomify-action, which
+  # supplies the license normalizer and the distro lifecycle table, so a bump
+  # of it is what brings a new distro release to licensedb/.
+  - package-ecosystem: "uv"
+    directory: "/licensedb"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore"

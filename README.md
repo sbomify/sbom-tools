@@ -107,6 +107,7 @@ that is still downloadable never complains about being old.
 | `Cargo.lock` | Dependabot `cargo` | cargo-cyclonedx |
 | `bun.lock` | Dependabot `bun` | cdxgen |
 | `global.json` | Dependabot `dotnet-sdk` | the .NET SDK |
+| `licensedb/uv.lock` | Dependabot `uv` | the license database generator, and the sbomify-action it takes its license and lifecycle data from |
 | `bun.lock` | Dependabot `bun` | cdxgen |
 | `bundles.toml` | `scripts/check_tool_versions.py` | the JDK, bun, Maven, Gradle, sbt, Rust |
 
@@ -172,6 +173,33 @@ cosign aliases to `slsaprovenance1`.
 The bundle carries the subject digest inside the signed statement, so this
 checks a digest that was signed rather than one copied into a file by hand.
 That is why consumers pin no digest of their own.
+
+## License databases
+
+sbomify-action fills in licenses for Linux distro packages from one
+pre-computed database per distro release -- `alpine-3.20.json.gz`,
+`ubuntu-24.04.json.gz` and so on, keyed by PURL. `licensedb/` builds them and
+`.github/workflows/licensedb.yml` publishes them as release assets, following
+the release model above: a published tag gets its own, and a push to master
+that touches `licensedb/` rebuilds `rolling`. Nothing else does, because the
+Ubuntu and Debian databases take hours and a syft bump has no bearing on
+them.
+
+They are data the action downloads, not part of the action, which is why they
+moved here. Two things stay in sbomify-action because it runs them itself --
+the license normalizer and the distro lifecycle table -- and the generator
+imports both from the sbomify-action release pinned in `licensedb/uv.lock`
+rather than keeping copies that drift.
+
+```console
+$ uv run --project licensedb licensedb/generate.py --distro alpine --version 3.20 --output alpine-3.20.json.gz
+$ uv run --project licensedb pytest licensedb
+```
+
+The tests are offline. The one that matters checks the generator's
+configured releases against the action's lifecycle table, so a Dependabot
+bump of sbomify-action that brings a new distro release fails here and names
+the repository config to add.
 
 ## What is deliberately not here
 

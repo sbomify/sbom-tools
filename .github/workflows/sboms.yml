@@ -70,8 +70,8 @@
 # Without this a cut release left eleven component SBOMs on production and no
 # product release tying them together.
 #
-# The version is the tag without its "tools-" prefix: release tools-26.10.2
-# publishes as 26.10.2.
+# The version is the tag without its "v": release v26.10.3 publishes as
+# 26.10.3.
 #
 # Every uploaded SBOM is signed with a GitHub build-provenance attestation over
 # the exact file sbomify received. sbomify verifies it through GitHub's
@@ -90,7 +90,7 @@ on:
     inputs:
       tag:
         description: >-
-          Release tag to republish SBOMs for (e.g. tools-26.10.2). Empty
+          Release tag to republish SBOMs for (e.g. v26.10.3). Empty
           publishes master to staging.
         required: false
         default: ''
@@ -200,11 +200,11 @@ jobs:
           TAG: ${{ (github.event.workflow_run.event == 'release' && github.event.workflow_run.head_branch) || inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
-          # The tag is tools-26.10.2; the version it names is 26.10.2.
+          # The tag is v26.10.3; the version it names is 26.10.3.
           if [[ -n "$TAG" ]]; then
             {
               echo "is_prod=true"
-              echo "version=${TAG#tools-}"
+              echo "version=${TAG#v}"
               echo "api_base_url=https://app.sbomify.com"
               echo "oidc_audience=sbomify.com"
             } >> "$GITHUB_OUTPUT"
@@ -218,7 +218,7 @@ jobs:
           fi
           if [[ -n "$TAG" ]]; then PRODUCT_ID="$PROD_PRODUCT_ID"; else PRODUCT_ID="$STAGING_PRODUCT_ID"; fi
           if [[ -n "$PRODUCT_ID" ]]; then
-            VERSION="${TAG#tools-}"
+            VERSION="${TAG#v}"
             VERSION="${VERSION:-${HEAD_SHA:0:7}}"
             echo "product_release=[\"${PRODUCT_ID}:${VERSION}\"]" >> "$GITHUB_OUTPUT"
           else
@@ -298,19 +298,19 @@ jobs:
           TAG: ${{ (github.event.workflow_run.event == 'release' && github.event.workflow_run.head_branch) || inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
-          # The tag is tools-26.10.2; the version it names is 26.10.2.
+          # The tag is v26.10.3; the version it names is 26.10.3.
           if [[ -n "$TAG" ]]; then
             {
               echo "is_prod=true"
               echo "release=${TAG}"
-              echo "version=${TAG#tools-}"
+              echo "version=${TAG#v}"
               echo "api_base_url=https://app.sbomify.com"
               echo "oidc_audience=sbomify.com"
             } >> "$GITHUB_OUTPUT"
           else
             {
               echo "is_prod=false"
-              echo "release=tools-rolling"
+              echo "release=rolling"
               echo "version=${HEAD_SHA:0:7}"
               echo "api_base_url=https://stage.sbomify.com"
               echo "oidc_audience=stage.sbomify.com"
@@ -318,7 +318,7 @@ jobs:
           fi
           if [[ -n "$TAG" ]]; then PRODUCT_ID="$PROD_PRODUCT_ID"; else PRODUCT_ID="$STAGING_PRODUCT_ID"; fi
           if [[ -n "$PRODUCT_ID" ]]; then
-            VERSION="${TAG#tools-}"
+            VERSION="${TAG#v}"
             VERSION="${VERSION:-${HEAD_SHA:0:7}}"
             echo "product_release=[\"${PRODUCT_ID}:${VERSION}\"]" >> "$GITHUB_OUTPUT"
           else

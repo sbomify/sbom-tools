@@ -10,7 +10,7 @@
 #
 # Where things land follows the release model:
 #
-#   push to master   the "tools-rolling" pre-release, replaced in place
+#   push to master   the "rolling" pre-release, replaced in place
 #   published tag    release assets, immutable for the life of the release
 #
 # Both are needed. A workflow artifact cannot serve as the rolling half: it
@@ -46,7 +46,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: tools-rolling
+          TAG: rolling
         run: |
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release edit "$TAG" --target "$GITHUB_SHA" --prerelease --latest=false
@@ -472,7 +472,7 @@ jobs:
           if [ "${{ github.event_name }}" = "release" ]; then
             TAG="${{ github.event.release.tag_name }}"
           else
-            TAG="tools-rolling"
+            TAG="rolling"
           fi
           gh release upload "$TAG" \
             "out/${{ matrix.bundle }}-linux-${{ matrix.arch }}.tar.gz" \

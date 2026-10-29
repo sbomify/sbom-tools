@@ -136,10 +136,10 @@ discover it. `--update` rewrites them.
 
 | trigger | published to |
 | --- | --- |
-| push to `master` | the `tools-rolling` pre-release, replaced in place |
+| push to `master` | the `rolling` pre-release, replaced in place |
 | published tag | that release's assets, immutable |
 
-`tools-rolling` is what lets master run against a freshly bumped tool before a
+`rolling` is what lets master run against a freshly bumped tool before a
 release is cut. Cutting a release to find out whether a bump works is
 backwards: the release is the thing the bump might break. It is a pre-release
 so it never displaces the real latest release, and it is not a supported

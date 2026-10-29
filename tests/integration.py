@@ -17,7 +17,7 @@ which is why every project has a floor rather than just an exit code.
     python tests/integration.py [--bundle jvm] [--project maven] [--dir DIR]
 
 Bundles are taken from --dir if present (a local `out/`), otherwise downloaded
-from the tools-rolling pre-release.
+from the rolling pre-release.
 """
 
 from __future__ import annotations
@@ -95,7 +95,7 @@ def fetch_bundle(name: str, arch: str, local: Path | None) -> Bundle:
         archive = local / archive.name
         log(f"  using local {archive.name}")
     elif not archive.exists():
-        url = f"{RELEASE_BASE}/tools-rolling/{name}-linux-{arch}.tar.gz"
+        url = f"{RELEASE_BASE}/rolling/{name}-linux-{arch}.tar.gz"
         log(f"  downloading {name} bundle")
         archive.parent.mkdir(parents=True, exist_ok=True)
         with urllib.request.urlopen(url, timeout=600) as response:  # noqa: S310

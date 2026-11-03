@@ -1,7 +1,9 @@
 # sbom-tools
 
 The SBOM tooling [sbomify-action](https://github.com/sbomify/sbomify-action)
-runs, built from source and published with build provenance.
+runs, and the vulnerability scanner [sbomify](https://github.com/sbomify/sbomify)
+and [pypi-tea](https://github.com/sbomify/pypi-tea) run over the SBOMs they
+store, built from source and published with build provenance.
 
 | tool | pinned in |
 | --- | --- |
@@ -9,6 +11,7 @@ runs, built from source and published with build provenance.
 | [cosign](https://github.com/sigstore/cosign) | `go.mod` |
 | [crane](https://github.com/google/go-containerregistry) | `go.mod` |
 | [cyclonedx-gomod](https://github.com/CycloneDX/cyclonedx-gomod) | `go.mod` |
+| [osv-scanner](https://github.com/google/osv-scanner) | `tools/osv-scanner/go.mod` |
 | [cargo-cyclonedx](https://github.com/CycloneDX/cyclonedx-rust-cargo) | `Cargo.lock` |
 
 Nothing here is a library. The manifests exist so each tool is pinned in the
@@ -42,6 +45,7 @@ without root.
 | `cdxgen` | cdxgen alone | 70.3 MiB |
 | `syft` | syft | 27.1 MiB |
 | `sigstore` | cosign, crane | 32.9 MiB |
+| `osv` | osv-scanner | 20.0 MiB |
 
 Sizes are the amd64 archive. arm64 is smaller in every case, by 3% for
 `jvm` and 20% for `rust`.
@@ -86,7 +90,8 @@ neither is as good as what the other ecosystems get.
 `syft` also serves every ecosystem for SPDX where the native tool emits only
 CycloneDX, which is most of them -- see the format table in sbomify-action.
 `sigstore` generates nothing; it is how a consumer verifies these bundles
-before trusting them.
+before trusting them. Neither does `osv`: it is for the other end, matching
+SBOMs that already exist against the [OSV database](https://osv.dev/).
 
 The JVM is one bundle rather than three because all of Maven, Gradle and sbt
 need the same 190MB JDK.
@@ -104,6 +109,7 @@ that is still downloadable never complains about being old.
 | pinned in | maintained by | covers |
 | --- | --- | --- |
 | `go.mod` | Dependabot `gomod` | syft, cosign, crane, cyclonedx-gomod, the Go toolchain |
+| `tools/osv-scanner/go.mod` | Dependabot `gomod` | osv-scanner |
 | `Cargo.lock` | Dependabot `cargo` | cargo-cyclonedx |
 | `bun.lock` | Dependabot `bun` | cdxgen |
 | `global.json` | Dependabot `dotnet-sdk` | the .NET SDK |
@@ -115,6 +121,14 @@ The last row is the residue, and it is all *runtimes* rather than our tools:
 no Dependabot ecosystem covers a JDK, a bun or Maven or Gradle distribution,
 an sbt launcher or a Rust toolchain. Those stay literal and are watched by a
 script instead.
+
+osv-scanner has a module of its own because it cannot share the root one:
+syft and osv-scanner need incompatible releases of go-diskfs (v1.9 changed
+`fat32.ReadDir`'s return type, and osv-scalibr still calls the v1.7 one), and
+a single `go.mod` selects exactly one version of each module. Split out, it
+resolves to precisely the dependency set upstream's own `go.mod` records. It
+also declares its own Go version, which can run ahead of the toolchain the
+`go` bundle ships.
 
 Everything in the rows above is one of our own tools, and every one of them
 is pinned by the package manager that owns it — nothing here maintains a

@@ -11,6 +11,15 @@ updates:
     commit-message:
       prefix: "chore"
 
+  # osv-scanner, in a module of its own because it and syft need incompatible
+  # releases of a shared dependency. See the build-go job in build.yml.
+  - package-ecosystem: "gomod"
+    directory: "/tools/osv-scanner"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore"
+
   - package-ecosystem: "cargo"
     directory: "/"
     schedule:

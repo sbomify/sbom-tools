@@ -85,6 +85,10 @@ built = ["syft"]
 description = "cosign and crane, for registry attestations"
 built = ["cosign", "crane"]
 
+[bundle.osv]
+description = "osv-scanner, for matching SBOMs against the OSV database"
+built = ["osv-scanner"]
+
 [bundle.cdxgen]
 description = "cdxgen alone, for the ecosystems it resolves without a toolchain"
 # syft is here for SPDX. The native CycloneDX tools -- cyclonedx-gomod,

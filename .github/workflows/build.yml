@@ -82,23 +82,32 @@ jobs:
         # keys are absent from the base matrix merges into every combination,
         # so both entries applied to all four tools and the second simply
         # overwrote the first. Only arm64 was ever built.
-        tool: [syft, cosign, crane, cyclonedx-gomod, cdxgen-launcher]
+        tool: [syft, cosign, crane, cyclonedx-gomod, osv-scanner, cdxgen-launcher]
         goarch: [amd64, arm64]
         include:
           - { goarch: amd64, runner: ubuntu-latest }
           - { goarch: arm64, runner: ubuntu-24.04-arm }
+    # The module the tool is pinned in. osv-scanner has its own, under
+    # tools/osv-scanner: it and syft need incompatible go-diskfs releases
+    # (v1.7 and v1.9, which changed fat32.ReadDir's return type), and one
+    # go.mod can select only one of them. Its own module also means it builds
+    # against exactly the dependency set upstream tests and releases with.
+    env:
+      MODDIR: ${{ matrix.tool == 'osv-scanner' && 'tools/osv-scanner' || '.' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # setup-go caches the module and build caches keyed on the lockfile.
-      # Every tool shares one go.sum, so a warm cache from any of them speeds
-      # up the rest: an unchanged dependency graph is a cache hit.
+      # Every tool but osv-scanner shares one go.sum, so a warm cache from any
+      # of them speeds up the rest: an unchanged dependency graph is a cache
+      # hit. The Go version comes from the same module, since osv-scanner can
+      # require a newer one than the toolchain the go bundle ships.
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: go.mod
+          go-version-file: ${{ env.MODDIR }}/go.mod
           cache: true
-          cache-dependency-path: go.sum
+          cache-dependency-path: ${{ env.MODDIR }}/go.sum
 
       - name: Resolve the pinned module path and version
         id: pin
@@ -108,6 +117,7 @@ jobs:
             cosign)          MOD=github.com/sigstore/cosign/v3;          PKG=$MOD/cmd/cosign ;;
             crane)           MOD=github.com/google/go-containerregistry; PKG=$MOD/cmd/crane ;;
             cyclonedx-gomod) MOD=github.com/CycloneDX/cyclonedx-gomod;   PKG=$MOD/cmd/cyclonedx-gomod ;;
+            osv-scanner)     MOD=github.com/google/osv-scanner/v2;       PKG=$MOD/cmd/osv-scanner ;;
             # Ours, and in this repository: a static launcher so cdxgen is a
             # normal executable on PATH. Its own package has no version to
             # resolve, so the module version stands in.
@@ -117,7 +127,7 @@ jobs:
           if [ "${{ matrix.tool }}" = "cdxgen-launcher" ]; then
             VERSION=$(git rev-parse --short HEAD)
           else
-            VERSION=$(go list -m -f '{{ .Version }}' "$MOD")
+            VERSION=$(go list -C "$MODDIR" -m -f '{{ .Version }}' "$MOD")
           fi
           { echo "pkg=$PKG"; echo "version=${VERSION#v}"; echo "tag=$VERSION"; } >> "$GITHUB_OUTPUT"
 
@@ -139,8 +149,10 @@ jobs:
           fi
           # -trimpath keeps runner paths out of the binary, so the build does
           # not depend on where it happened.
-          go build -trimpath -ldflags="$LDFLAGS" \
-            -o "dist/${{ matrix.tool }}-linux-${{ matrix.goarch }}" "${{ steps.pin.outputs.pkg }}"
+          # -C resolves the package in the tool's own module, so -o is
+          # absolute: relative paths would land under that directory.
+          go build -C "$MODDIR" -trimpath -ldflags="$LDFLAGS" \
+            -o "$PWD/dist/${{ matrix.tool }}-linux-${{ matrix.goarch }}" "${{ steps.pin.outputs.pkg }}"
 
       - name: Smoke test
         run: |
@@ -396,7 +408,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        bundle: [go, rust, jvm, dotnet, php, cdxgen, syft, sigstore]
+        bundle: [go, rust, jvm, dotnet, php, cdxgen, syft, sigstore, osv]
         arch: [amd64, arm64]
         include:
           - { arch: amd64, runner: ubuntu-latest }

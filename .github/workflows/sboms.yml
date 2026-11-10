@@ -106,7 +106,7 @@ permissions:
 # the two IDs differ.
 env:
   STAGING_PRODUCT_ID: WA1sUetBBFcW
-  PROD_PRODUCT_ID: PmdIuuj43CV3
+  PROD_PRODUCT_ID: raHPDyGlhgBJ
 
 jobs:
   # ---------------------------------------------------------------------

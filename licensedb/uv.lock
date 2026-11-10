@@ -858,6 +858,7 @@ wheels = [
 name = "platformdirs"
 version = "4.14.0"
 source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/40/28/1c058a9143d2304b3078f8dadcbb9dc27f7d3581b5d05157c84869c4cc0d/platformdirs-4.14.0.tar.gz", hash = "sha256:83f009c1e8c5fc36869b5171755b291887bd2cade7965233cdfabd23d754720b", size = 70387, upload-time = "2026-10-28T18:27:30.973Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/69/2b/887969ef4bb53e0cb271dc7c3f4a73d50c5d58bb88aeaae311e3340cd57e/platformdirs-4.14.0-py3-none-any.whl", hash = "sha256:1dadfc59a8a5d7565b3d9270ae8fa71c065595352c4277b41c11ee6c222c4b91", size = 35259, upload-time = "2026-10-28T18:27:29.659Z" },
 ]
@@ -1182,7 +1183,7 @@ dev = [{ name = "pytest", specifier = ">=9.0.3,<10" }]
 
 [[package]]
 name = "sbomify-action"
-version = "26.10.3"
+version = "26.11.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "click" },
@@ -1201,9 +1202,9 @@ dependencies = [
     { name = "textual" },
     { name = "zstandard" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/28/8c/0e82d01bd670b6b20c8f54d8b5fc73750280ebb4d086126dae5659a60a0f/sbomify_action-26.10.3.tar.gz", hash = "sha256:7d1307836cca3597821a964b8fcece5a3f25f2bf172e3bdde576f510f21573e4", size = 827800, upload-time = "2026-10-29T10:27:54.512Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/64/e7/516f89f997504eb534d72818b8c1d78b0b76aeb0aa4f76274c5873b816c4/sbomify_action-26.11.0.tar.gz", hash = "sha256:26abb03fbd6aca7ad3b3b3c72bed1c698f05b66da6b05847c795ec37435a1d12", size = 819705, upload-time = "2026-11-03T13:07:35.899Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/bb/65/8d1f1088dc7386ad0c4df7269d5415b64ee47e4b69f1b4ce0a19888a1166/sbomify_action-26.10.3-py3-none-any.whl", hash = "sha256:c92e488bc993b392ae21795338e107699940235aefd7ff69ddfc154e9e46264a", size = 951955, upload-time = "2026-10-29T10:27:52.781Z" },
+    { url = "https://files.pythonhosted.org/packages/97/48/34e71ef9c968c7f5f9ed62693b85a8fd927d8f7c8714ac748585449ea154/sbomify_action-26.11.0-py3-none-any.whl", hash = "sha256:585586162ffba8910f746d61508bf5dc4e744917c60e72236239f55b7ae540b3", size = 942892, upload-time = "2026-11-03T13:07:33.704Z" },
 ]
 
 [[package]]

@@ -8,4 +8,4 @@ publish = false
 # is pinned in Cargo's own manifest, where Dependabot maintains it, and so
 # `cargo install --locked` builds exactly what Cargo.lock records.
 [dependencies]
-cargo-cyclonedx = "=0.5.9"
+cargo-cyclonedx = "=0.5.10"

@@ -41,7 +41,7 @@
     <dependency>
       <groupId>com.github.sbt</groupId>
       <artifactId>sbt-sbom_2.12_1.0</artifactId>
-      <version>0.6.0</version>
+      <version>0.7.0</version>
     </dependency>
   </dependencies>
 </project>

@@ -246,15 +246,15 @@ env = { JAVA_HOME = "{prefix}/jdk", MAVEN_ARGS = "-Dmaven.repo.local={prefix}/re
   sha512 = "831a8591fe20c8243b1dbe7d71e3244f31d1665b0804b2e825e38cbbe5ce0cafb8338851f90780735568773e0a6cd07bbec107cda0b896b008b861075358b6f6"
 
   [bundle.jvm.upstream.gradle]
-  version = "9.8.2"
+  version = "9.9.2"
   strip_container = true
   into = "gradle"
   [bundle.jvm.upstream.gradle.amd64]
-  url = "https://services.gradle.org/distributions/gradle-9.8.2-bin.zip"
-  sha256 = "21bd5da2de49b642904077f38c0efdc7778e92b3ed0889392dca61b97e389607"
+  url = "https://services.gradle.org/distributions/gradle-9.9.2-bin.zip"
+  sha256 = "971fcd7150ca4ba04852c0b2ca0d2d0ab9468e14b03473eab19528809914c76b"
   [bundle.jvm.upstream.gradle.arm64]
-  url = "https://services.gradle.org/distributions/gradle-9.8.2-bin.zip"
-  sha256 = "21bd5da2de49b642904077f38c0efdc7778e92b3ed0889392dca61b97e389607"
+  url = "https://services.gradle.org/distributions/gradle-9.9.2-bin.zip"
+  sha256 = "971fcd7150ca4ba04852c0b2ca0d2d0ab9468e14b03473eab19528809914c76b"
 
   # Gradle and sbt are JVM applications, so one architecture-independent
   # archive serves both. Only the JDK below differs per architecture.

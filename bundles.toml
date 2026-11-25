@@ -30,10 +30,10 @@ env = { GOMODCACHE = "{prefix}/.gomodcache", GOCACHE = "{prefix}/.gocache", GOPA
   strip_container = true
   [bundle.go.upstream.go.amd64]
   url = "https://go.dev/dl/go{version}.linux-amd64.tar.gz"
-  sha256 = "ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5"
+  sha256 = "7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840"
   [bundle.go.upstream.go.arm64]
   url = "https://go.dev/dl/go{version}.linux-arm64.tar.gz"
-  sha256 = "3f4227ce7b206a513e794f1393adb473a07b46e94d18bd15d1c684bbb7319797"
+  sha256 = "3392582988a273a87ab5043ee1b2c9c17a2c3c00580bf9326c47a2e0aaaeac92"
 
 [bundle.rust]
 description = "cargo-cyclonedx with the cargo and rustc it shells out to"
@@ -48,7 +48,7 @@ env = { CARGO_HOME = "{prefix}/.cargo" }
 # deleting the rest of lib/ breaks it. Saves 181MB.
 
   [bundle.rust.upstream.cargo]
-  version = "1.97.1"
+  version = "1.100.0"
   strip_container = true
   payload = "cargo"
   # rust-installer bookkeeping listing what install.sh would copy. We do not
@@ -56,14 +56,14 @@ env = { CARGO_HOME = "{prefix}/.cargo" }
   # be two files fighting over the same name.
   exclude = ["manifest.in"]
   [bundle.rust.upstream.cargo.amd64]
-  url = "https://static.rust-lang.org/dist/cargo-1.97.1-x86_64-unknown-linux-gnu.tar.xz"
-  sha256 = "e1be5f5ff7f7f80ca506fb65770b759edbdc6d303781ed71c5de8ec8a8394779"
+  url = "https://static.rust-lang.org/dist/cargo-1.100.0-x86_64-unknown-linux-gnu.tar.xz"
+  sha256 = "7e29ce07d7c6e92d1826870575ba27d57fff6cb3e754aa57d99099cb88fab35d"
   [bundle.rust.upstream.cargo.arm64]
-  url = "https://static.rust-lang.org/dist/cargo-1.97.1-aarch64-unknown-linux-gnu.tar.xz"
-  sha256 = "8f70bcaccea5ba4db187c3fd4d64e24592b4e16af513497201f5909d61691dbe"
+  url = "https://static.rust-lang.org/dist/cargo-1.100.0-aarch64-unknown-linux-gnu.tar.xz"
+  sha256 = "d07ee80eb6ba3c5845c554ac88086e1ff5d63f83d99c3c09cb32504cbedd6844"
 
   [bundle.rust.upstream.rustc]
-  version = "1.97.1"
+  version = "1.100.0"
   strip_container = true
   payload = "rustc"
   # rust-installer bookkeeping listing what install.sh would copy. We do not
@@ -71,11 +71,11 @@ env = { CARGO_HOME = "{prefix}/.cargo" }
   # be two files fighting over the same name.
   exclude = ["manifest.in"]
   [bundle.rust.upstream.rustc.amd64]
-  url = "https://static.rust-lang.org/dist/rustc-1.97.1-x86_64-unknown-linux-gnu.tar.xz"
-  sha256 = "9819d0a32d56bd339585319c80260e332779f5541fd66838ab7e016d6c814819"
+  url = "https://static.rust-lang.org/dist/rustc-1.100.0-x86_64-unknown-linux-gnu.tar.xz"
+  sha256 = "f1d0b1dec81dab6f523cd098507763487b0d4bd7fd2c87582f154128719be03b"
   [bundle.rust.upstream.rustc.arm64]
-  url = "https://static.rust-lang.org/dist/rustc-1.97.1-aarch64-unknown-linux-gnu.tar.xz"
-  sha256 = "b344b81f0cd4c2246c7da8b197fe7a339d7dd02bb15cb69b2524115d9c75224c"
+  url = "https://static.rust-lang.org/dist/rustc-1.100.0-aarch64-unknown-linux-gnu.tar.xz"
+  sha256 = "fcbfa5b8a0cb28f0c4edfb6dda6910ee910993db31f05258613f5cd5b851263a"
 
 [bundle.syft]
 description = "syft, for container images and as the filesystem fallback"
@@ -121,18 +121,18 @@ npm_install = true
   # gulp and handlebars, returned despite --required-only. A bigger document
   # describing things the project does not depend on is not a better one.
   [bundle.cdxgen.upstream.bun]
-  version = "1.3.14"
+  version = "1.4.5"
   # The zip is bun-linux-x64/bun -- one directory holding the binary and
   # nothing else -- so stripping the wrapper and landing it in bin/ puts it
   # straight onto PATH.
   strip_container = true
   into = "bin"
   [bundle.cdxgen.upstream.bun.amd64]
-  url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-linux-x64.zip"
-  sha256 = "951ee2aee855f08595aeec6225226a298d3fea83a3dcd6465c09cbccdf7e848f"
+  url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.5/bun-linux-x64.zip"
+  sha256 = "94559b3b528995a49452f9f2404cec74f2efd7d06e0a000a8cd214b02c3666eb"
   [bundle.cdxgen.upstream.bun.arm64]
-  url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-linux-aarch64.zip"
-  sha256 = "a27ffb63a8310375836e0d6f668ae17fa8d8d18b88c37c821c65331973a19a3b"
+  url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.5/bun-linux-aarch64.zip"
+  sha256 = "18656a3bf0ea5641f5796ae4213b75255579a70a0fded2f337933785568cdf84"
 [bundle.jvm]
 # Records the CycloneDX plugin versions in bundle.toml; see PLUGIN_PINS.
 build_plugins = true
@@ -201,20 +201,20 @@ env = { JAVA_HOME = "{prefix}/jdk", MAVEN_ARGS = "-Dmaven.repo.local={prefix}/re
   # gulp and handlebars, returned despite --required-only. A bigger document
   # describing things the project does not depend on is not a better one.
   [bundle.jvm.upstream.bun]
-  version = "1.3.14"
+  version = "1.4.5"
   # The zip is bun-linux-x64/bun -- one directory holding the binary and
   # nothing else -- so stripping the wrapper and landing it in bin/ puts it
   # straight onto PATH.
   strip_container = true
   into = "bin"
   [bundle.jvm.upstream.bun.amd64]
-  url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-linux-x64.zip"
-  sha256 = "951ee2aee855f08595aeec6225226a298d3fea83a3dcd6465c09cbccdf7e848f"
+  url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.5/bun-linux-x64.zip"
+  sha256 = "94559b3b528995a49452f9f2404cec74f2efd7d06e0a000a8cd214b02c3666eb"
   [bundle.jvm.upstream.bun.arm64]
-  url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-linux-aarch64.zip"
-  sha256 = "a27ffb63a8310375836e0d6f668ae17fa8d8d18b88c37c821c65331973a19a3b"
+  url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.5/bun-linux-aarch64.zip"
+  sha256 = "18656a3bf0ea5641f5796ae4213b75255579a70a0fded2f337933785568cdf84"
   [bundle.jvm.upstream.jdk]
-  version = "21.0.13+9"
+  version = "21.0.13.1+2"
   strip_container = true
   into = "jdk"
   # emSign roots whose intermediates' private keys were compromised
@@ -228,11 +228,11 @@ env = { JAVA_HOME = "{prefix}/jdk", MAVEN_ARGS = "-Dmaven.repo.local={prefix}/re
     "86:A1:EC:BA:08:9C:4A:8D:3B:BE:27:34:C6:12:BA:34:1D:81:3E:04:3C:F9:E8:A8:62:CD:5C:57:A3:6B:BE:6B", # emSign ECC Root CA - G3
   ]
   [bundle.jvm.upstream.jdk.amd64]
-  url = "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.13%2B9/OpenJDK21U-jdk_x64_linux_hotspot_21.0.13_9.tar.gz"
-  sha256 = "d7f5d5cf865a2902b70ff549b97586a7d3f234e016f041ab447ea740c7d66d1c"
+  url = "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.13.1%2B2/OpenJDK21U-jdk_x64_linux_hotspot_21.0.13.1_2.tar.gz"
+  sha256 = "bb8a93f9ae6e7a693b2b721e85dbeff26ae1a77447985a8d7afcdd9c7cf6222e"
   [bundle.jvm.upstream.jdk.arm64]
-  url = "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.13%2B9/OpenJDK21U-jdk_aarch64_linux_hotspot_21.0.13_9.tar.gz"
-  sha256 = "e3522e707fc7dbe2a72c30746b1e7068301a0213ecd213d4491f35a14eb55578"
+  url = "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.13.1%2B2/OpenJDK21U-jdk_aarch64_linux_hotspot_21.0.13.1_2.tar.gz"
+  sha256 = "8c72816a6b308842d5ed1f13e5826b69c567da4784f7238d7e800efa71fe54b1"
 
   [bundle.jvm.upstream.maven]
   version = "3.9.16"
@@ -265,15 +265,15 @@ env = { JAVA_HOME = "{prefix}/jdk", MAVEN_ARGS = "-Dmaven.repo.local={prefix}/re
   # too (cats pins 1.10.0), and the launcher honours project/build.properties,
   # so shipping 1.x also lets a project select its own.
   [bundle.jvm.upstream.sbt]
-  version = "1.12.14"
+  version = "1.13.1"
   strip_container = true
   into = "sbt"
   [bundle.jvm.upstream.sbt.amd64]
-  url = "https://github.com/sbt/sbt/releases/download/v1.12.14/sbt-1.12.14.tgz"
-  sha256 = "cd17daae220ff264faa4251334522444518584f0eb2ee82da01523a9b9002b7e"
+  url = "https://github.com/sbt/sbt/releases/download/v1.13.1/sbt-1.13.1.tgz"
+  sha256 = "4a20e36c1642b6d5be34ef641d2ed6c8c0d464e6145283730d5566716e4083be"
   [bundle.jvm.upstream.sbt.arm64]
-  url = "https://github.com/sbt/sbt/releases/download/v1.12.14/sbt-1.12.14.tgz"
-  sha256 = "cd17daae220ff264faa4251334522444518584f0eb2ee82da01523a9b9002b7e"
+  url = "https://github.com/sbt/sbt/releases/download/v1.13.1/sbt-1.13.1.tgz"
+  sha256 = "4a20e36c1642b6d5be34ef641d2ed6c8c0d464e6145283730d5566716e4083be"
 
 [bundle.php]
 description = "cdxgen with the PHP runtime and Composer it shells out to"
@@ -330,18 +330,18 @@ env = { COMPOSER_HOME = "{prefix}/.composer", COMPOSER_CACHE_DIR = "{prefix}/.co
   # gulp and handlebars, returned despite --required-only. A bigger document
   # describing things the project does not depend on is not a better one.
   [bundle.php.upstream.bun]
-  version = "1.3.14"
+  version = "1.4.5"
   # The zip is bun-linux-x64/bun -- one directory holding the binary and
   # nothing else -- so stripping the wrapper and landing it in bin/ puts it
   # straight onto PATH.
   strip_container = true
   into = "bin"
   [bundle.php.upstream.bun.amd64]
-  url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-linux-x64.zip"
-  sha256 = "951ee2aee855f08595aeec6225226a298d3fea83a3dcd6465c09cbccdf7e848f"
+  url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.5/bun-linux-x64.zip"
+  sha256 = "94559b3b528995a49452f9f2404cec74f2efd7d06e0a000a8cd214b02c3666eb"
   [bundle.php.upstream.bun.arm64]
-  url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-linux-aarch64.zip"
-  sha256 = "a27ffb63a8310375836e0d6f668ae17fa8d8d18b88c37c821c65331973a19a3b"
+  url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.5/bun-linux-aarch64.zip"
+  sha256 = "18656a3bf0ea5641f5796ae4213b75255579a70a0fded2f337933785568cdf84"
 
   # composer.phar carries `#!/usr/bin/env php`, so landing it in bin/ named
   # `composer` and marking it executable is all it needs -- the php built
@@ -354,15 +354,15 @@ env = { COMPOSER_HOME = "{prefix}/.composer", COMPOSER_CACHE_DIR = "{prefix}/.co
   # keeps the schema uniform rather than making this the one component shaped
   # differently.
   [bundle.php.upstream.composer]
-  version = "2.10.3"
+  version = "2.11.3"
   kind = "raw"
   bin_name = "composer"
   [bundle.php.upstream.composer.amd64]
   url = "https://getcomposer.org/download/{version}/composer.phar"
-  sha256 = "7a2d379d5b8ffdaa028580ef26494c36d2feef4b178d3dd1473a4dbc5e17c8d6"
+  sha256 = "04f8b003da4e3a2459056591fbfebd02b4dc3e5adeb158616b90cf55a65113ec"
   [bundle.php.upstream.composer.arm64]
   url = "https://getcomposer.org/download/{version}/composer.phar"
-  sha256 = "7a2d379d5b8ffdaa028580ef26494c36d2feef4b178d3dd1473a4dbc5e17c8d6"
+  sha256 = "04f8b003da4e3a2459056591fbfebd02b4dc3e5adeb158616b90cf55a65113ec"
 
 [bundle.dotnet]
 description = "cdxgen with the .NET SDK it needs to restore packages.lock.json"
@@ -393,18 +393,18 @@ env = { DOTNET_CLI_HOME = "{prefix}/.dotnet", NUGET_PACKAGES = "{prefix}/.nuget"
   # gulp and handlebars, returned despite --required-only. A bigger document
   # describing things the project does not depend on is not a better one.
   [bundle.dotnet.upstream.bun]
-  version = "1.3.14"
+  version = "1.4.5"
   # The zip is bun-linux-x64/bun -- one directory holding the binary and
   # nothing else -- so stripping the wrapper and landing it in bin/ puts it
   # straight onto PATH.
   strip_container = true
   into = "bin"
   [bundle.dotnet.upstream.bun.amd64]
-  url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-linux-x64.zip"
-  sha256 = "951ee2aee855f08595aeec6225226a298d3fea83a3dcd6465c09cbccdf7e848f"
+  url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.5/bun-linux-x64.zip"
+  sha256 = "94559b3b528995a49452f9f2404cec74f2efd7d06e0a000a8cd214b02c3666eb"
   [bundle.dotnet.upstream.bun.arm64]
-  url = "https://github.com/oven-sh/bun/releases/download/bun-v1.3.14/bun-linux-aarch64.zip"
-  sha256 = "a27ffb63a8310375836e0d6f668ae17fa8d8d18b88c37c821c65331973a19a3b"
+  url = "https://github.com/oven-sh/bun/releases/download/bun-v1.4.5/bun-linux-aarch64.zip"
+  sha256 = "18656a3bf0ea5641f5796ae4213b75255579a70a0fded2f337933785568cdf84"
   [bundle.dotnet.upstream.dotnet]
   # From global.json, which Dependabot's dotnet-sdk updater maintains.
   version_from = { file = "global.json" }
@@ -414,7 +414,7 @@ env = { DOTNET_CLI_HOME = "{prefix}/.dotnet", NUGET_PACKAGES = "{prefix}/.nuget"
   bin_dir = "dotnet"
   [bundle.dotnet.upstream.dotnet.amd64]
   url = "https://builds.dotnet.microsoft.com/dotnet/Sdk/{version}/dotnet-sdk-{version}-linux-x64.tar.gz"
-  sha512 = "b7b3d8461cf98b07d2552ce9199702fa3ad010ac2671a5f8cd5136f7534e50f6855ba7bbb02b11494563f1d04156276a31cda1103b900e5eecd0d9473dc7b9c5"
+  sha512 = "1bec9cca2ec689b1e80245b84f2b53c9441d1aa6daccf2ceb27490768bffa95954fa585bd275def31069d874d543d9ba9e6591fe9ade2dbd9f34ec5c0fd0050c"
   [bundle.dotnet.upstream.dotnet.arm64]
   url = "https://builds.dotnet.microsoft.com/dotnet/Sdk/{version}/dotnet-sdk-{version}-linux-arm64.tar.gz"
-  sha512 = "0966aa2b70f4677b8319be9df447a78a0dcd6164836425b55a68fd714f4023feb87b4cac21b9a996b79472ad54487cd0adcd2a9dfd570e2b2a1d26423a2baa9b"
+  sha512 = "cfa248bb1377606e868602fb5b4d66fa16b7546156593937d1982f7f2142e6ded76d71c4a26efdab99f87c46ab40c3c672ab1b57ef7fa25449efe5b140a55af4"

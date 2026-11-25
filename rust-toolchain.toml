@@ -7,7 +7,7 @@
 # something unpacked into an arbitrary container is a dependency we cannot
 # see and the consumer cannot satisfy.
 [toolchain]
-channel = "1.97.1"
+channel = "1.100.0"
 components = ["cargo", "rustc"]
 targets = [
   "x86_64-unknown-linux-musl",

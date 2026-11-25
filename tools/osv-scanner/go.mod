@@ -1,6 +1,6 @@
 module github.com/sbomify/sbom-tools/tools/osv-scanner
 
-go 1.27.3
+go 1.27.4
 
 tool github.com/google/osv-scanner/v2/cmd/osv-scanner
 

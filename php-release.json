@@ -3,7 +3,7 @@
     "The PHP release the php bundle is built from, and the image it is built",
     "in. php.net publishes no Linux binaries -- only source -- so this pins",
     "the tarball we compile, by the digest php.net publishes for it at",
-    "https://www.php.net/releases/index.php?json&version=8.5&max=1.",
+    "https://www.php.net/releases/index.php?json&version=8.6&max=1.",
     "",
     "A file of its own rather than a literal in build.yml, matching global.json",
     "for the .NET SDK and go.mod for Go: a pin belongs somewhere greppable and",
@@ -19,8 +19,8 @@
     "jobs both."
   ],
   "php": {
-    "version": "8.5.13",
-    "sha256": "3aeb20a7e667e197929747f76047409196f91f0172357439319cba344df8b3e1"
+    "version": "8.6.0",
+    "sha256": "62337dccde3d9fcc39797d4529f42637613036eaf3875353c206874e5813a3c1"
   },
   "builder": {
     "image": "alpine:3.24",

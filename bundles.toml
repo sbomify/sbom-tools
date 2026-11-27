@@ -235,15 +235,15 @@ env = { JAVA_HOME = "{prefix}/jdk", MAVEN_ARGS = "-Dmaven.repo.local={prefix}/re
   sha256 = "8c72816a6b308842d5ed1f13e5826b69c567da4784f7238d7e800efa71fe54b1"
 
   [bundle.jvm.upstream.maven]
-  version = "3.9.16"
+  version = "3.10.2"
   strip_container = true
   into = "maven"
   [bundle.jvm.upstream.maven.amd64]
-  url = "https://archive.apache.org/dist/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.tar.gz"
-  sha512 = "831a8591fe20c8243b1dbe7d71e3244f31d1665b0804b2e825e38cbbe5ce0cafb8338851f90780735568773e0a6cd07bbec107cda0b896b008b861075358b6f6"
+  url = "https://archive.apache.org/dist/maven/maven-3/3.10.2/binaries/apache-maven-3.10.2-bin.tar.gz"
+  sha512 = "57d2db6b37e7582119137ade544557bba741b29e62109ef81539a2bdfd6d0e641fdd5d8edb014af1816d0510deac6fac8f347433b3a1aa36316ba85aa77b8119"
   [bundle.jvm.upstream.maven.arm64]
-  url = "https://archive.apache.org/dist/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.tar.gz"
-  sha512 = "831a8591fe20c8243b1dbe7d71e3244f31d1665b0804b2e825e38cbbe5ce0cafb8338851f90780735568773e0a6cd07bbec107cda0b896b008b861075358b6f6"
+  url = "https://archive.apache.org/dist/maven/maven-3/3.10.2/binaries/apache-maven-3.10.2-bin.tar.gz"
+  sha512 = "57d2db6b37e7582119137ade544557bba741b29e62109ef81539a2bdfd6d0e641fdd5d8edb014af1816d0510deac6fac8f347433b3a1aa36316ba85aa77b8119"
 
   [bundle.jvm.upstream.gradle]
   version = "9.9.2"

@@ -48,7 +48,7 @@ env = { CARGO_HOME = "{prefix}/.cargo" }
 # deleting the rest of lib/ breaks it. Saves 181MB.
 
   [bundle.rust.upstream.cargo]
-  version = "1.100.0"
+  version = "1.100.1"
   strip_container = true
   payload = "cargo"
   # rust-installer bookkeeping listing what install.sh would copy. We do not
@@ -56,14 +56,14 @@ env = { CARGO_HOME = "{prefix}/.cargo" }
   # be two files fighting over the same name.
   exclude = ["manifest.in"]
   [bundle.rust.upstream.cargo.amd64]
-  url = "https://static.rust-lang.org/dist/cargo-1.100.0-x86_64-unknown-linux-gnu.tar.xz"
-  sha256 = "7e29ce07d7c6e92d1826870575ba27d57fff6cb3e754aa57d99099cb88fab35d"
+  url = "https://static.rust-lang.org/dist/cargo-1.100.1-x86_64-unknown-linux-gnu.tar.xz"
+  sha256 = "f0a81f7ea2e3238e85fadb3b9f5bc03111ed368697a04dd350567f6ed836d638"
   [bundle.rust.upstream.cargo.arm64]
-  url = "https://static.rust-lang.org/dist/cargo-1.100.0-aarch64-unknown-linux-gnu.tar.xz"
-  sha256 = "d07ee80eb6ba3c5845c554ac88086e1ff5d63f83d99c3c09cb32504cbedd6844"
+  url = "https://static.rust-lang.org/dist/cargo-1.100.1-aarch64-unknown-linux-gnu.tar.xz"
+  sha256 = "c1996df187de68a3b637a211424ad17988c78eed483199067333081f38989ee9"
 
   [bundle.rust.upstream.rustc]
-  version = "1.100.0"
+  version = "1.100.1"
   strip_container = true
   payload = "rustc"
   # rust-installer bookkeeping listing what install.sh would copy. We do not
@@ -71,11 +71,11 @@ env = { CARGO_HOME = "{prefix}/.cargo" }
   # be two files fighting over the same name.
   exclude = ["manifest.in"]
   [bundle.rust.upstream.rustc.amd64]
-  url = "https://static.rust-lang.org/dist/rustc-1.100.0-x86_64-unknown-linux-gnu.tar.xz"
-  sha256 = "f1d0b1dec81dab6f523cd098507763487b0d4bd7fd2c87582f154128719be03b"
+  url = "https://static.rust-lang.org/dist/rustc-1.100.1-x86_64-unknown-linux-gnu.tar.xz"
+  sha256 = "e8e8f0a79da23a7526aea34f2da59e96ea8f51e4ef5e5a3831f71f41e63a495e"
   [bundle.rust.upstream.rustc.arm64]
-  url = "https://static.rust-lang.org/dist/rustc-1.100.0-aarch64-unknown-linux-gnu.tar.xz"
-  sha256 = "fcbfa5b8a0cb28f0c4edfb6dda6910ee910993db31f05258613f5cd5b851263a"
+  url = "https://static.rust-lang.org/dist/rustc-1.100.1-aarch64-unknown-linux-gnu.tar.xz"
+  sha256 = "1c195c642704e29d908f784e4df6b3fd90bc792f8ac8a1b222b1dfa36c8f9e40"
 
 [bundle.syft]
 description = "syft, for container images and as the filesystem fallback"
@@ -246,15 +246,15 @@ env = { JAVA_HOME = "{prefix}/jdk", MAVEN_ARGS = "-Dmaven.repo.local={prefix}/re
   sha512 = "57d2db6b37e7582119137ade544557bba741b29e62109ef81539a2bdfd6d0e641fdd5d8edb014af1816d0510deac6fac8f347433b3a1aa36316ba85aa77b8119"
 
   [bundle.jvm.upstream.gradle]
-  version = "9.9.2"
+  version = "9.9.3"
   strip_container = true
   into = "gradle"
   [bundle.jvm.upstream.gradle.amd64]
-  url = "https://services.gradle.org/distributions/gradle-9.9.2-bin.zip"
-  sha256 = "971fcd7150ca4ba04852c0b2ca0d2d0ab9468e14b03473eab19528809914c76b"
+  url = "https://services.gradle.org/distributions/gradle-9.9.3-bin.zip"
+  sha256 = "4f2135b741f272acc88c168a52202a0a63fceee0cd61ee753da79694cd2b1e4b"
   [bundle.jvm.upstream.gradle.arm64]
-  url = "https://services.gradle.org/distributions/gradle-9.9.2-bin.zip"
-  sha256 = "971fcd7150ca4ba04852c0b2ca0d2d0ab9468e14b03473eab19528809914c76b"
+  url = "https://services.gradle.org/distributions/gradle-9.9.3-bin.zip"
+  sha256 = "4f2135b741f272acc88c168a52202a0a63fceee0cd61ee753da79694cd2b1e4b"
 
   # Gradle and sbt are JVM applications, so one architecture-independent
   # archive serves both. Only the JDK below differs per architecture.

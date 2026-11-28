@@ -32,6 +32,17 @@ on:
 permissions:
   contents: read
 
+# One publish to a given release at a time. Every run that is not a release
+# writes the same rolling assets, and each bundle goes up as an archive plus its
+# attestation in two separate uploads. Overlapping runs interleave those, so the
+# rolling release can end up serving one build's archive next to another build's
+# attestation, and every consumer then refuses the bundle because the digests do
+# not match. Queue rather than cancel: a run cancelled between its two uploads
+# leaves exactly that mismatch behind.
+concurrency:
+  group: build-${{ github.event_name == 'release' && github.event.release.tag_name || 'rolling' }}
+  cancel-in-progress: false
+
 jobs:
   # Created once here rather than by whichever job gets there first: several
   # jobs racing to create one tag means several failures to swallow, and
